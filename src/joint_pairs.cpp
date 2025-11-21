@@ -16,7 +16,7 @@ with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <algorithm>
 #include <vector>
 #include <cstdint>
-
+#include <algorithm>
 #include "cube.h"
 #include "dense_cubical_grids.h"
 #include "coboundary_enumerator.h"
@@ -178,6 +178,12 @@ void JointPairs::joint_pairs_main(vector<Cube>& ctr, int current_dim) {
     if (current_dim == 0) {
         uint32_t bx, by, bz, bw, dx, dy, dz, dw;
         decode(min_idx, bx, by, bz, bw);
+        if(config->tconstruction){
+            if (bx > 0) bx--;
+            if (by > 0) by--;
+            if (bz > 0) bz--;
+            if (bw > 0) bw--;
+        }
         wp->emplace_back(current_dim, min_birth, dcg->threshold, bx, by, bz, bw, 0, 0, 0, 0, config->print);
     }
 

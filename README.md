@@ -401,6 +401,7 @@ It computes for the V-construction of the image.
 It computes for the V-construction of the image.
 
 ## Release Notes
+- (v0.0.22) changed birth coordinates for T-construction to much with GUDHI for permanent cycles
 - (v0.0.19) added support for 4D cubical complexes
 - (v0.0.8) fixed memory leak in Python bindings (pointed out by Nicholas Byrne)
 - (v0.0.7) slight speed up
