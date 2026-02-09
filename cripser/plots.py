@@ -35,8 +35,8 @@ def plot_diagrams(
     *,
     labels: Sequence[str] | None = None,
     ax=None,
-    show: bool = True,
     title: str | None = None,
+    legend: bool = True,
     diagonal: bool = True,
     marker_size: float = 18.0,
     alpha: float = 0.8,
@@ -47,9 +47,9 @@ def plot_diagrams(
     - diagrams: list of arrays (n_i, 2) or a single (n, 2) array.
     - labels: optional labels for the legend.
     - ax: optional matplotlib axis.
-    - show: call `plt.show()` when True.
     - title: optional axis title.
     - diagonal: whether to draw y=x.
+    - legend: whether to show legend.
     """
     import matplotlib.pyplot as plt
 
@@ -123,9 +123,5 @@ def plot_diagrams(
     ax.grid(True, alpha=0.2)
     if title is not None:
         ax.set_title(title)
-    if labels is not None:
-        ax.legend(frameon=False)
-
-    if show:
-        plt.show()
-    return ax
+    if legend is True:
+        ax.legend(loc="lower right")

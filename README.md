@@ -107,6 +107,20 @@ dgms = cripser.to_gudhi_diagrams(ph)
 pers = cripser.to_gudhi_persistence(ph)
 ```
 
+#### Differentiable PyTorch Wrapper
+  ```python
+  import torch
+  import cripser
+
+  x = torch.rand(32, 32, requires_grad=True)
+  ph = cripser.compute_ph_torch(x, maxdim=1, filtration="V")
+  loss = cripser.finite_lifetimes(ph, dim=0).sum()
+  loss.backward()
+  ```
+  The gradient is propagated through birth/death values to the corresponding
+  creator/destroyer voxel locations. Pairing changes are discrete, so the
+  gradient is piecewise defined.
+
 #### GUDHI Conversion Helpers
 For convenience, a small utility package is included to convert
 the raw output into GUDHI-compatible formats.
@@ -358,19 +372,7 @@ The authors thank Nicholas Byrne for suggesting the convention and providing a t
 
   For practical examples, see [HomologyCNN](https://github.com/shizuo-kaji/HomologyCNN).
 
-- **Differentiable PyTorch Wrapper**:
-  ```python
-  import torch
-  import cripser
 
-  x = torch.rand(32, 32, requires_grad=True)
-  ph = cripser.compute_ph_torch(x, maxdim=1, filtration="V")
-  loss = cripser.finite_lifetimes(ph, dim=0).sum()
-  loss.backward()
-  ```
-  The gradient is propagated through birth/death values to the corresponding
-  creator/destroyer voxel locations. Pairing changes are discrete, so the
-  gradient is piecewise defined.
 
 ---
 

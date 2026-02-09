@@ -1,6 +1,6 @@
 [project]
 name = "cripser"
-version = "0.0.22"
+version = "0.0.23"
 description = "Cubical Ripser Python binding"
 license = { file = "LICENSE" }
 urls = { "Homepage" = "https://github.com/shizuo-kaji/CubicalRipser_3dim" }
