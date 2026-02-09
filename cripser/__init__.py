@@ -14,8 +14,36 @@ except ImportError:
         "tcripser is not installed. Please install it to use the T-construction."
     )
 
+try:
+    from .torch_utils import compute_ph_torch, finite_lifetimes
+except ModuleNotFoundError as exc:
+    if exc.name != "torch":
+        raise
+
+    def _torch_required(*args, **kwargs):
+        raise ImportError(
+            "PyTorch is required for `compute_ph_torch` and `finite_lifetimes`."
+        )
+
+    compute_ph_torch = _torch_required
+    finite_lifetimes = _torch_required
+
+try:
+    from .plots import plot_diagrams
+except ModuleNotFoundError as exc:
+    if exc.name != "matplotlib":
+        raise
+
+    def _matplotlib_required(*args, **kwargs):
+        raise ImportError("matplotlib is required for `plot_diagrams`.")
+
+    plot_diagrams = _matplotlib_required
+
 __all__ = ["computePH", "computePH_T",
     "__version__", "compute_ph",
     "to_gudhi_diagrams",
     "to_gudhi_persistence",
-    "group_by_dim"]
+    "group_by_dim",
+    "compute_ph_torch",
+    "finite_lifetimes",
+    "plot_diagrams"]
