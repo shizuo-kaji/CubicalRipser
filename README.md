@@ -18,11 +18,11 @@ CubicalRipser is an adaptation of [Ripser](http://ripser.org) by Ulrich Bauer, s
 If you use this software in research, please cite:
 
 ```bibtex
-@article{sudo2020cubicalripser,
-  title={Cubical Ripser: Software for Computing Persistent Homology of Image and Volume Data},
-  author={Sudo, Takeki and Ahara, Kazushi and Kaji, Shizuo},
-  journal={arXiv preprint arXiv:2005.12692},
-  year={2020}
+@misc{2005.12692,
+Author = {Shizuo Kaji and Takeki Sudo and Kazushi Ahara},
+Title = {Cubical Ripser: Software for computing persistent homology of image and volume data},
+Year = {2020},
+Eprint = {arXiv:2005.12692},
 }
 ```
 

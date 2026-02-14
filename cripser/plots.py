@@ -40,6 +40,7 @@ def plot_diagrams(
     diagonal: bool = True,
     marker_size: float = 18.0,
     alpha: float = 0.8,
+    show: bool = False,
 ):
     """Plot one or more persistence diagrams.
 
@@ -125,3 +126,5 @@ def plot_diagrams(
         ax.set_title(title)
     if legend is True:
         ax.legend(loc="lower right")
+    if show:
+        plt.show()

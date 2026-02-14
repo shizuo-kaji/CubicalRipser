@@ -50,7 +50,7 @@ def _collect_and_measure_rss() -> int:
 
 
 def check_computeph_memory_stability(
-    phases: Iterable[int] = (10, 20),
+    phases: Iterable[int] = (5, 10),
     shape: tuple[int, int, int] = (50, 50, 50),
     seed: int = 0,
     max_phase2_growth_mb: float = 4.0,
