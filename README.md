@@ -12,10 +12,19 @@ CubicalRipser is an adaptation of [Ripser](http://ripser.org) by Ulrich Bauer, s
 - Flexible filtrations: supports both V- and T-constructions (see: V and T Constructions)
 - Binary coefficients (field F2)
 - Python module and standalone CLI
+- PyTorch integration for differentiable persistent homology
 - Birth/death locations with creator/destroyer cells
 
-For details, see:
-Cubical Ripser: Software for Computing Persistent Homology of Image and Volume Data (https://arxiv.org/abs/2005.12692)
+If you use this software in research, please cite:
+
+```bibtex
+@article{sudo2020cubicalripser,
+  title={Cubical Ripser: Software for Computing Persistent Homology of Image and Volume Data},
+  author={Sudo, Takeki and Ahara, Kazushi and Kaji, Shizuo},
+  journal={arXiv preprint arXiv:2005.12692},
+  year={2020}
+}
+```
 
 ---
 
@@ -25,7 +34,7 @@ Distributed under the GNU Lesser General Public License v3.0 or later.
 ## Getting Started
 
 ### Try Online
-- **Google Colab Demo**: [CubicalRipser in Action](https://colab.research.google.com/github/shizuo-kaji/CubicalRipser_3dim/blob/main/demo/cubicalripser.ipynb)
+- **Google Colab Demo**: [CubicalRipser in Action](https://colab.research.google.com/github/shizuo-kaji/CubicalRipser/blob/main/demo/cubicalripser.ipynb)
 - **Topological Data Analysis (TDA) Tutorial**: [Hands-On Guide](https://colab.research.google.com/github/shizuo-kaji/TutorialTopologicalDataAnalysis/blob/main/TopologicalDataAnalysisWithPython.ipynb)
 - **Applications in Deep Learning**:
   - [Example 1: Homology-enhanced CNNs](https://github.com/shizuo-kaji/HomologyCNN)
@@ -50,8 +59,8 @@ Requires a C++11-compatible compiler (e.g., GCC, Clang, MSVC).
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/shizuo-kaji/CubicalRipser_3dim.git
-   cd CubicalRipser_3dim
+   git clone https://github.com/shizuo-kaji/CubicalRipser.git
+   cd CubicalRipser
    ```
 
 2. Build the command-line executable:
@@ -283,23 +292,25 @@ that is compatible with Cubical Ripser by
   ```
   by reading .dcm files from the directry **dicom** in a sorted order.
 
-### DIPHA file
+- Handle the DIPHA format:
 The filename should end with ".complex".
 Look at [DIPHA binary format](https://github.com/DIPHA/dipha#file-formats) for specification.
 
 We can convert input and output files between Cubical Ripser and DIPHA.
 - to convert an Numpy array **img.npy** into DIPHA's format **img.complex**
   ```bash
-    python dipha2npy.py img.npy img.complex
+    python demo/img2npy.py img.npy img.complex
   ```
 - the other way around
   ```bash
-    python dipha2npy.py img.complex img.npy
+    python demo/img2npy.py img.complex img.npy
   ```
 - convert DIPHA's output **result.output** into an Numpy array **result.npy**
   ```bash
-    python dipha2npy.py result.output result.npy
+    python demo/img2npy.py result.output result.npy
   ```
+
+
 ### 1D time series
 A scalar time-series can be considered as a 1D image,
 so Cubical Ripser can compute its persistent homology.
@@ -372,10 +383,27 @@ The authors thank Nicholas Byrne for suggesting the convention and providing a t
 
   For practical examples, see [HomologyCNN](https://github.com/shizuo-kaji/HomologyCNN).
 
-
-
 ---
 
+## Timing Comparisons
+
+The following are some timing comparisons.
+
+```bash
+python demo/timing_cr.py sample/bonsai128.npy --runs 5 --warmup 1 -o timing_bonsai128.csv
+```
+
+This writes `timing_bonsai128.csv` with:
+
+- `run` rows: one row per timed iteration (`elapsed_seconds`)
+- one `summary` row per `(software, filtration)` pair:
+  `mean_seconds`, `std_seconds`, `min_seconds`, `max_seconds`
+- metadata for comparisons across code changes:
+  `timestamp_utc`, `git_commit`, `software`, `filtration`, `maxdim`, `input_shape`
+- default combinations are:
+  `cubicalripser + V`, `cubicalripser + T`, `gudhi + V`, `gudhi + T`
+- you can restrict combinations with e.g.:
+  `--software cubicalripser` or `-f V`
 
 
 
@@ -417,6 +445,10 @@ It computes for the V-construction of the image.
 It computes for the V-construction of the image.
 
 ## Release Notes
+- (v0.0.24) Repository renamed: This project moved from CubicalRipser_3dim to CubicalRipser.
+Old GitHub links should redirect automatically. If you have a local clone, update your remote:
+git remote set-url origin https://github.com/shizuo-kaji/CubicalRipser.git
+- (v0.0.23) added support for torch integration
 - (v0.0.22) changed birth coordinates for T-construction to much with GUDHI for permanent cycles
 - (v0.0.19) added support for 4D cubical complexes
 - (v0.0.8) fixed memory leak in Python bindings (pointed out by Nicholas Byrne)

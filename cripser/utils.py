@@ -18,8 +18,8 @@ Infinite deaths (encoded internally as DBL_MAX) are converted to numpy.inf.
 from __future__ import annotations
 
 from typing import List, Sequence, Tuple, Union
+from itertools import product
 
-import importlib
 import numpy as np
 from ._cripser import computePH, __version__  # type: ignore
 try:
@@ -33,6 +33,29 @@ ArrayLike = Union[np.ndarray, Sequence[float], Sequence[Sequence[float]]]
 
 
 _INF_CUTOFF = np.finfo(np.float64).max / 2.0  # heuristic to detect DBL_MAX
+
+
+def dual_embedding(arr: ArrayLike) -> np.ndarray:
+    """Embed values onto the dual grid by taking local minima.
+
+    Given an input array ``arr`` of shape ``(n1, ..., nd)``, return an array
+    of shape ``(n1+1, ..., nd+1)`` where each output entry is the minimum of
+    incident input cells (boundary handled naturally with fewer incidents).
+
+    """
+    a = np.asarray(arr, dtype=np.float64)
+    if a.ndim < 1 or a.ndim > 4:
+        raise ValueError("dual_embedding expects a 1D-4D array")
+
+    out_shape = tuple(s + 1 for s in a.shape)
+    out = np.full(out_shape, np.inf, dtype=np.float64)
+
+    # Each input cell contributes to one of the 2^d corners in the dual grid.
+    for offset in product((0, 1), repeat=a.ndim):
+        out_slice = tuple(slice(o, o + s) for o, s in zip(offset, a.shape))
+        out[out_slice] = np.minimum(out[out_slice], a)
+
+    return out
 
 
 def compute_ph(

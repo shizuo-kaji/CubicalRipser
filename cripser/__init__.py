@@ -7,6 +7,18 @@ stable import path ``cripser.computePH`` and provides helpers in
 
 from .utils import *
 from ._cripser import computePH, __version__  # type: ignore
+from .image_loader import (
+    detect_format,
+    load_dipha_complex,
+    save_dipha_complex,
+    load_perseus,
+    save_perseus,
+    load_image,
+    load_series,
+    save_image,
+)
+from .transform import SUPPORTED_TRANSFORMS, binarize, apply_transform, preprocess_image
+from .vectorization import create_PH_histogram_volume
 try:
     from tcripser import computePH as computePH_T
 except ImportError:
@@ -41,9 +53,23 @@ except ModuleNotFoundError as exc:
 
 __all__ = ["computePH", "computePH_T",
     "__version__", "compute_ph",
+    "dual_embedding",
     "to_gudhi_diagrams",
     "to_gudhi_persistence",
     "group_by_dim",
+    "detect_format",
+    "load_dipha_complex",
+    "save_dipha_complex",
+    "load_perseus",
+    "save_perseus",
+    "load_image",
+    "load_series",
+    "save_image",
+    "SUPPORTED_TRANSFORMS",
+    "binarize",
+    "apply_transform",
+    "preprocess_image",
+    "create_PH_histogram_volume",
     "compute_ph_torch",
     "finite_lifetimes",
     "plot_diagrams"]

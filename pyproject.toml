@@ -13,14 +13,28 @@ requires-python = ">=3.8"
 
 [build-system]
 # setuptools reads metadata from [project]; setup.py drives CMake directly.
+# cmake/ninja here lets isolated `pip` builds succeed even on fresh Windows hosts.
 requires = [
-  "setuptools>=68",
+  "setuptools>=69",
   "wheel",
+  "cmake>=3.21",
+  "ninja>=1.11",
 ]
 build-backend = "setuptools.build_meta"
 
 [tool.cibuildwheel]
-archs = "x86_64 arm64" # Build for both architectures
+build = "cp3*-*"
+skip = "pp* cp31?t-*"
+
+[tool.cibuildwheel.linux]
+archs = ["auto64"]
+
+[tool.cibuildwheel.macos]
+archs = ["x86_64", "universal2", "arm64"]
+environment = { ARCHFLAGS = "-arch arm64 -arch x86_64" }
+
+[tool.cibuildwheel.windows]
+archs = ["AMD64"]
 
 [tool.setuptools]
 zip-safe = false

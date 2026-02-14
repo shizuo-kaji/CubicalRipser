@@ -1,246 +1,230 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-#%%
-import struct
-import numpy as np
+"""Convert image/volume files between NumPy and common formats.
+"""
+
+from __future__ import annotations
+
 import argparse
-import os
-from PIL import Image
-import re,struct
-import shutil
-from scipy.ndimage import distance_transform_edt
-from skimage.filters import threshold_otsu
-from skimage.transform import rescale
-from skimage import io
+from pathlib import Path
+import struct
+from typing import Any
 
-try:
-    import nrrd
-except:
-    print("Install nrrd first by: pip install pynrrd")
-    exit()
+import numpy as np
+
+from cripser.image_loader import load_dipha_complex, load_image, load_series, save_image
+from cripser.transform import SUPPORTED_TRANSFORMS, preprocess_image
 
 
-num = lambda val : int(re.sub("\\D", "", val+"0"))
-dtype ={None: None, "uint8": np.uint8, "uint16": np.uint16, "float": np.float32, "double": np.float64}
+_DTYPE_MAP: dict[str, np.dtype[Any]] = {
+    "uint8": np.uint8,
+    "uint16": np.uint16,
+    "float": np.float32,
+    "float32": np.float32,
+    "double": np.float64,
+    "float64": np.float64,
+}
 
-#%%
-parser = argparse.ArgumentParser("Convert image file to Numpy array")
-parser.add_argument('input', nargs="*", help="multiple files of the same dimension would be stacked to a 3D image. If directory is specified, combine all the files in the directory.")
-parser.add_argument('output', help="output filename (.npy or .nrrd or .raw or .pgm or .dcm or .jpg)")
-parser.add_argument('--scaling_factor','-sf', type=float, default=1)
-parser.add_argument('--forceSpacing', '-fs', type=float, help='scale dicom to match the specified spacing (pixel size)')
-parser.add_argument('--tile','-tl', type=int, default=1)
-parser.add_argument('--transform', '-tr', choices=[None,'binarisation','distance','signed_distance','distance_inv','signed_distance_inv','radial','radial_inv','geodesic','geodesic_inv','upward','downward'], help="apply transform")
-parser.add_argument('--transpose', '-tp', type=int, nargs='*', default=None, help='axis order (argument to numpy.transpose)')
-parser.add_argument('--origin', '-o', type=int, nargs='*', default=(0,0), help='origin for the radial transformation (z,y,x)')
-parser.add_argument('--origin_mask', '-om', type=str, default=None, help='nrrd file of the same dimension with the input specifying the object from which the geodesic distance will be calculated in geodesic mode')
-parser.add_argument('--threshold', '-th', type=float, default=None, help='binarisation threshold for distance transform')
-parser.add_argument('--threshold_upper_limit', '-thu', type=float, default=None, help='binarisation threshold for distance transform')
-parser.add_argument('--shift_value', '-sv', default=0, type=int, help='pixel values are shifted before computing PH')
-parser.add_argument('--dtype','-d', type=str, default=None, choices=dtype.keys())
-parser.add_argument('--sort','-s', action='store_true', help="Sort file names before stacking")
-#parser.add_argument('--zsplit','-z', action='store_true', help="save one file for each slice along z-axis")
-parser.add_argument('--zrange', type=int, nargs=2, help="select specific z-slices")
-args = parser.parse_args()
 
-# %%
-if os.path.isdir(args.input[0]):
-    is_input_dir = True
-    fns = os.listdir(args.input[0])
-    args.input = [os.path.join(args.input[0],f) for f in fns]
-else:
-    is_input_dir = False
+def _looks_like_series_input(inputs: list[str]) -> bool:
+    if len(inputs) > 1:
+        return True
+    if len(inputs) != 1:
+        return False
+    one = inputs[0]
+    return any(ch in one for ch in "*?[]") or Path(one).is_dir()
 
-if args.sort:
-    args.input.sort(key=num)
 
-frfn,ext = os.path.splitext(args.input[0])
-ext = ext.lower()
-if ext == ".dcm":
-    try:
-        import pydicom as dicom
-    except:
-        print("Install pydicom first by: pip install pydicom")
-        exit()
+def _load_dipha_persistence(path: str) -> np.ndarray:
+    """Load DIPHA persistence output (.output/.diagram) as (n, 3)."""
+    data = Path(path).read_bytes()
+    if len(data) < 24:
+        raise ValueError(f"File too short for DIPHA persistence format: {path}")
 
-try:
-    from tqdm import tqdm
-except:
-    tqdm = lambda x: x
+    _magic, _dtype, n_pairs = struct.unpack_from("qqq", data, 0)
+    offset = 8 * 3
+    expected_bytes = offset + n_pairs * (8 + 8 + 8)  # qdd per pair
+    if len(data) < expected_bytes:
+        raise ValueError(f"Truncated DIPHA persistence file: {path}")
 
-images = []
-for ffn in args.input:
-    #print("reading {}".format(ffn))
-    fn,ext = os.path.splitext(ffn)
-    if ext == ".npy":
-        im = np.load(ffn)
-    elif ext == ".npz":
-        imz = np.load(ffn)
-        im = imz[imz.files[0]]
-    elif ext == ".dcm":
-        ref_dicom_in = dicom.read_file(ffn, force=True)
-        if not hasattr(ref_dicom_in.file_meta, "TransferSyntaxUID"):
-            ref_dicom_in.file_meta.TransferSyntaxUID = dicom.uid.ImplicitVRLittleEndian ## We have to specify the right one here.
-        if ref_dicom_in.file_meta.TransferSyntaxUID != dicom.uid.ImplicitVRLittleEndian:
-            ref_dicom_in.file_meta.TransferSyntaxUID = dicom.uid.ImplicitVRLittleEndian
-            ref_dicom_in.is_little_endian = True
-            ref_dicom_in.is_implicit_VR = True
-        dt=ref_dicom_in.pixel_array.dtype
-        im = ref_dicom_in.pixel_array + ref_dicom_in.RescaleIntercept
-        if args.forceSpacing is not None:
-            scaling = float(ref_dicom_in.PixelSpacing[0])/args.forceSpacing
-            im = rescale(im,scaling,mode="reflect",preserve_range=True)
-    elif ext == ".csv":
-        im = np.loadtxt(ffn,delimiter=",")
-    elif ext == ".nrrd":
-        im, header = nrrd.read(ffn, index_order='C')
-    elif ext == ".complex": # DIPHA
-        dat = open(args.input,'rb').read()
-        magic,tp,sz,dim = struct.unpack_from("qqqq",dat,0)
-        sp = struct.unpack_from("q"*dim,dat,8*4) # offset = 8byte x 4
-        im = np.array(struct.unpack_from("d"*sz,dat,8*(4+dim))).reshape(sp)
+    raw = struct.unpack_from("qdd" * n_pairs, data, offset)
+    return np.asarray(raw, dtype=np.float64).reshape((-1, 3))
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="img2npy",
+        description="Convert image/volume files to/from NumPy, DIPHA complex, DICOM, NRRD, etc.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Positional arguments are: one or more input paths, followed by output path.\n"
+            "Examples:\n"
+            "  python demo/img2npy.py input.jpg output.npy\n"
+            "  python demo/img2npy.py input00.dcm input01.dcm input02.dcm volume.npy\n"
+            "  python demo/img2npy.py img.npy img.complex\n"
+            "  python demo/img2npy.py img.complex img.npy\n"
+            "  python demo/img2npy.py result.output result.npy\n"
+        ),
+    )
+    parser.add_argument(
+        "paths",
+        nargs="+",
+        help="Input file(s) followed by output file",
+    )
+
+    parser.add_argument("--scaling_factor", "-sf", type=float, default=1.0)
+    parser.add_argument("--forceSpacing", "-fs", type=float, default=None)
+    parser.add_argument("--tile", "-tl", type=int, default=1)
+    parser.add_argument(
+        "--transform",
+        "-tr",
+        choices=list(SUPPORTED_TRANSFORMS),
+        default=None,
+        help="Apply preprocessing transform",
+    )
+    parser.add_argument("--transpose", "-tp", type=int, nargs="*", default=None)
+    parser.add_argument(
+        "--origin",
+        "-o",
+        type=int,
+        nargs="*",
+        default=None,
+        help="Origin for radial/geodesic transform (z,y,x for 3D)",
+    )
+    parser.add_argument(
+        "--origin_mask",
+        "-om",
+        type=str,
+        default=None,
+        help="Mask image path for geodesic transform origin region",
+    )
+    parser.add_argument("--threshold", "-th", type=float, default=None)
+    parser.add_argument("--threshold_upper_limit", "-thu", type=float, default=None)
+    parser.add_argument("--shift_value", "-sv", type=float, default=0.0)
+    parser.add_argument(
+        "--dtype",
+        "-d",
+        type=str,
+        default=None,
+        choices=[None, "uint8", "uint16", "float", "double", "float32", "float64"],
+        help="Cast output dtype",
+    )
+    parser.add_argument(
+        "--sort",
+        "-s",
+        action="store_true",
+        help="Numeric sort of filenames when stacking series",
+    )
+    parser.add_argument("--zrange", type=int, nargs=2, default=None)
+    parser.add_argument(
+        "--input_ext",
+        "-it",
+        type=str,
+        default=None,
+        help="Optional extension filter when input is directory/glob (e.g. dcm, .png)",
+    )
+    return parser.parse_args()
+
+
+def _resolve_dtype(name: str | None) -> np.dtype[Any] | None:
+    if name is None:
+        return None
+    return _DTYPE_MAP[name]
+
+
+def _print_stats(tag: str, arr: np.ndarray) -> None:
+    print(
+        f"{tag}: shape={arr.shape}, dtype={arr.dtype}, "
+        f"min={np.min(arr):.6g}, max={np.max(arr):.6g}"
+    )
+
+
+def main() -> None:
+    args = _parse_args()
+
+    if len(args.paths) < 2:
+        raise SystemExit("Provide at least one input path and one output path.")
+
+    input_paths = args.paths[:-1]
+    output_path = args.paths[-1]
+
+    if len(input_paths) == 1:
+        in_ext = Path(input_paths[0]).suffix.lower()
+        if in_ext in {".output", ".diagram"}:
+            if args.transform is not None:
+                print("Warning: ignoring --transform for DIPHA persistence conversion.")
+            out_arr = _load_dipha_persistence(input_paths[0])
+            np.save(output_path, out_arr)
+            print(f"Converted DIPHA persistence to NumPy: {output_path} shape={out_arr.shape}")
+            return
+
+    dicom_ref = None
+    if _looks_like_series_input(input_paths):
+        loaded = load_series(
+            input_paths if len(input_paths) > 1 else input_paths[0],
+            input_extension=args.input_ext,
+            numeric_sort=args.sort,
+            force_spacing=args.forceSpacing,
+            squeeze=True,
+            return_metadata=True,
+        )
+        arr, metadata_list = loaded
+        for meta in metadata_list:
+            if "dicom_dataset" in meta:
+                dicom_ref = meta["dicom_dataset"]
+                break
     else:
-        im = np.array(Image.open(ffn).convert('L'))
-
-    images.append(im)
-
-img_arr = np.squeeze(np.stack(images,axis=0))
-print("input shape: ",img_arr.shape, "values {}--{}, dtype: {}".format(im.min(),im.max(),im.dtype))
-
-### processing
-if args.transpose is not None:
-    img_arr = img_arr.transpose(args.transpose)
-
-# select slices
-if args.zrange is not None:
-    img_arr = img_arr[slice(*args.zrange)]
-
-# size reduction
-if args.scaling_factor != 1:
-    #from scipy.ndimage import zoom
-    #img_arr = zoom(img_arr, args.scaling_factor)
-    if np.issubdtype(img_arr.dtype, np.integer) and np.ptp(img_arr)<2:
-        img_arr = img_arr.astype(np.bool_)
-    img_arr = rescale(img_arr,args.scaling_factor,mode="reflect",preserve_range=True) #,anti_aliasing=True)
-
-# repeating periodically
-if args.tile > 1:
-    img_arr = np.tile(img_arr, [args.tile]*len(img_arr.shape))
-
-# thresholding and transform
-if args.transform is not None:
-    # binarisation
-    if args.threshold is not None:
-        if args.threshold_upper_limit is not None:
-            img_arr = np.logical_and(img_arr >= args.threshold,img_arr <= args.threshold_upper_limit)
+        input_ext = Path(input_paths[0]).suffix.lower()
+        if input_ext == ".complex":
+            arr = load_dipha_complex(input_paths[0], transpose_to_numpy=True)
+            dicom_ref = None
         else:
-            img_arr = (img_arr >= args.threshold)
-    elif args.threshold_upper_limit is not None:
-        img_arr = (img_arr <= args.threshold_upper_limit)
-    else:
-        img_arr = (img_arr >= threshold_otsu(img_arr))
+            loaded = load_image(
+                input_paths[0],
+                force_spacing=args.forceSpacing,
+                return_metadata=True,
+            )
+            arr, meta = loaded
+            dicom_ref = meta.get("dicom_dataset")
 
-    if 'distance' in args.transform: # distance from the background
-        if '_inv' in args.transform:
-            img_arr = ~img_arr
-        im = distance_transform_edt(img_arr)
-        if 'signed' in args.transform:
-            im -= distance_transform_edt(~img_arr)
-        img_arr = im
-    elif args.transform == 'signed_distance':
-        img_arr = distance_transform_edt(img_arr)-distance_transform_edt(~img_arr)
-    elif args.transform in ['downward','upward']:
-        null_idx = img_arr == 0
-        ## height transform
-        if len(img_arr.shape) == 3: #(z,y,x)
-            h = np.arange(img_arr.shape[0]).reshape(-1,1,1)
-        else:
-            h = np.arange(img_arr.shape[0]).reshape(-1,1)
-        if args.transform=='upward':
-            #h = np.max(h) - h
-            h = -h
-        img_arr = (img_arr * h).astype(np.int32)
-        img_arr[null_idx] = np.max(img_arr)
-    elif 'radial' in args.transform:
-        null_idx = img_arr == 0
-        h = np.linalg.norm(np.stack(np.meshgrid(*map(range,img_arr.shape),indexing='ij'),axis=-1)-np.array(args.origin), axis=-1)
-        img_arr = (img_arr * h)
-        if args.transform=='radial_inv':
-            #img_arr = np.max(img_arr) - img_arr
-            img_arr *= -1  ## background pixels are 0
-        else:
-            img_arr[null_idx] = np.max(h)
-    elif 'geodesic' in args.transform:
-        try:
-            import skfmm
-        except:
-            print("install skfmm by 'pip install scikit-fmm'")
-            exit()
-        roi = np.ones(img_arr.shape)
-        if args.origin_mask is not None:
-            skl, header = nrrd.read(args.origin_mask, index_order='C')
-            roi[skl>0]=0  # >0 specifies outside the object
-            #print(roi.size, roi.sum(), skl.sum(),skl.min(),skl.max())
-        else:
-            if len(roi.shape)==3:
-                roi[args.origin[0],args.origin[1],args.origin[2]] = 0
-            else:
-                roi[args.origin[0],args.origin[1]] = 0
-        # compute the signed distance from the 0-contour
-        img_arr = skfmm.distance(np.ma.MaskedArray(roi,~img_arr))  # outside the region (~img_arr) is masked
-        if '_inv' in args.transform:
-            img_arr *= -1
-        img_arr = img_arr.filled(fill_value=img_arr.max())
-        #print(roi.min(),roi.max())
+    arr = np.asarray(arr)
+    _print_stats("input", arr)
+
+    origin_mask = None
+    if args.origin_mask is not None:
+        origin_mask = np.asarray(load_image(args.origin_mask))
+
+    arr = preprocess_image(
+        arr,
+        transpose=tuple(args.transpose) if args.transpose is not None else None,
+        zrange=tuple(args.zrange) if args.zrange is not None else None,
+        scaling_factor=args.scaling_factor,
+        tile=args.tile,
+        transform=args.transform,
+        threshold=args.threshold,
+        threshold_upper_limit=args.threshold_upper_limit,
+        origin=tuple(args.origin) if args.origin is not None else None,
+        origin_mask=origin_mask,
+        shift_value=args.shift_value,
+        dtype=_resolve_dtype(args.dtype),
+    )
+    arr = np.asarray(arr)
+    _print_stats("processed", arr)
+
+    out_ext = Path(output_path).suffix.lower()
+    if out_ext == ".dcm" and dicom_ref is None:
+        raise ValueError(
+            "Saving .dcm requires DICOM input metadata. "
+            "Use DICOM input files as reference or save to another format."
+        )
+
+    save_kwargs: dict[str, Any] = {}
+    if out_ext == ".dcm":
+        save_kwargs["dicom_reference"] = dicom_ref
+    save_image(arr, output_path, **save_kwargs)
+
+    print(f"saved: {output_path}")
 
 
-if args.shift_value:
-    img_arr += args.shift_value
-
-if args.dtype is not None:
-    img_arr = img_arr.astype(dtype[args.dtype])
-
-### save
-tofn,ext = os.path.splitext(args.output)
-ext = ext.lower()
-print("output ",args.output, " shape: ",img_arr.shape, " dtype: ",img_arr.dtype, " ftype: ",ext, "values: {} -- {}".format(img_arr.min(),img_arr.max()))
-
-if ext == ".raw":  # for use with cubicle
-    data = img_arr.astype(np.uint16).flatten()
-    with open(args.output, 'wb') as out:
-        for v in data:
-            out.write(struct.pack('H', v))   # B: uchar, H: ushort
-elif ext == ".pgm":   # for use with diamorse
-    if len(img_arr.shape)==3:
-        with open(args.output, 'wb') as outfile:
-            for z in range(img_arr.shape[2]):
-                fname = tofn+"_{:0>4}.pgm".format(z)
-                Image.fromarray(img_arr[:,:,z].astype(np.uint8),mode='L').save(fname)
-                with open(fname, 'rb') as infile:
-                    shutil.copyfileobj(infile,outfile)
-                os.remove(fname)
-    else:
-        Image.fromarray(img_arr.astype(np.uint8),mode='L').save(args.output)
-elif ext == ".nrrd":
-    nrrd.write(args.output, img_arr, index_order='C')
-elif ext == ".npy":
-    np.save(args.output,img_arr)
-elif ext == ".dcm": ## TODO: correct header info
-    if len(img_arr.shape) == 3:
-        os.makedirs(tofn,exist_ok=True)
-        for i in range(img_arr.shape[0]):
-            ref_dicom_in.PixelData = (img_arr[i]-ref_dicom_in.RescaleIntercept).astype(dt).tobytes()
-            ref_dicom_in.Rows, ref_dicom_in.Columns = img_arr[i].shape
-            ref_dicom_in.save_as(os.path.join(tofn,"{:0>4}.dcm".format(i)), write_like_original=False)
-    else:
-        ref_dicom_in.PixelData = (img_arr-ref_dicom_in.RescaleIntercept).astype(dt).tobytes()
-        ref_dicom_in.Rows, ref_dicom_in.Columns = img_arr.shape
-        ref_dicom_in.save_as(args.output, write_like_original=False)
-
-else: # a file for each slice
-    if len(img_arr.shape) == 3:
-        os.makedirs(tofn,exist_ok=True)
-        for i in range(img_arr.shape[0]):
-            io.imsave(os.path.join(tofn,"_{:0>4}.jpg".format(i)),img_arr[i])
-    else:
-        io.imsave(args.output,img_arr)
+if __name__ == "__main__":
+    main()
