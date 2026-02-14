@@ -18,7 +18,7 @@ from .image_loader import (
     save_image,
 )
 from .transform import SUPPORTED_TRANSFORMS, binarize, apply_transform, preprocess_image
-from .vectorization import create_PH_histogram_volume
+from .vectorization import create_PH_histogram_volume, persistence_image
 try:
     from tcripser import computePH as computePH_T
 except ImportError:
@@ -70,6 +70,7 @@ __all__ = ["computePH", "computePH_T",
     "apply_transform",
     "preprocess_image",
     "create_PH_histogram_volume",
+    "persistence_image",
     "compute_ph_torch",
     "finite_lifetimes",
     "plot_diagrams"]

@@ -9,6 +9,8 @@ from typing import Iterable, Sequence
 
 import numpy as np
 
+from .utils import to_gudhi_diagrams
+
 
 def _as_diagram_array(diagram: np.ndarray | Sequence[Sequence[float]]) -> np.ndarray:
     arr = np.asarray(diagram, dtype=np.float64)
@@ -23,6 +25,9 @@ def _normalize_diagrams(
     diagrams: Iterable[np.ndarray | Sequence[Sequence[float]]] | np.ndarray,
 ) -> list[np.ndarray]:
     if isinstance(diagrams, np.ndarray):
+        # Allow passing raw CubicalRipser output of shape (n, 9).
+        if diagrams.ndim == 2 and diagrams.shape[1] == 9:
+            return [np.asarray(d, dtype=np.float64) for d in to_gudhi_diagrams(diagrams)]
         return [_as_diagram_array(diagrams)]
     out: list[np.ndarray] = []
     for d in diagrams:
@@ -45,7 +50,8 @@ def plot_diagrams(
     """Plot one or more persistence diagrams.
 
     Parameters
-    - diagrams: list of arrays (n_i, 2) or a single (n, 2) array.
+    - diagrams: list of arrays (n_i, 2), a single (n, 2) array, or
+      CubicalRipser output of shape (n, 9).
     - labels: optional labels for the legend.
     - ax: optional matplotlib axis.
     - title: optional axis title.

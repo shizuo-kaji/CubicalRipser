@@ -61,19 +61,19 @@ def dual_embedding(arr: ArrayLike) -> np.ndarray:
 def compute_ph(
     arr: np.ndarray,
     *,
-    #module: str = "_cripser",
     filtration: str = "V",
     maxdim: int = 3,
     top_dim: bool = False,
     embedded: bool = False,
     location: str = "yes",
+    inf_cutoff: bool = True,
 ) -> np.ndarray:
     """Compute persistent homology using `cripser` or `tcripser`.
 
     Parameters
     - arr: numpy array (1D/2D/3D/4D) of dtype float64
-    - module: "_cripser" (V-construction) or "tcripser" (T-construction)
     - maxdim, top_dim, embedded, location: forwarded to the pybind function
+    - inf_cutoff: value to use as cutoff for detecting DBL_MAX (default is _INF_CUTOFF)
 
     Returns
     - np.ndarray of shape (n, 9): columns are
@@ -83,7 +83,13 @@ def compute_ph(
         arr = arr.astype(np.float64, copy=False)
     #mod = importlib.import_module(module)
     func = computePH_T if filtration.upper() == "T" else computePH
-    return func(arr, maxdim=maxdim, top_dim=top_dim, embedded=embedded, location=location)
+    out = func(arr, maxdim=maxdim, top_dim=top_dim, embedded=embedded, location=location)
+    # Convert CubicalRipser's DBL_MAX to np.inf
+    if inf_cutoff:
+        mask = out[:, 2] >= _INF_CUTOFF  # death column is index 2
+        if mask.any():
+            out[mask, 2] = np.inf
+    return out
 
 
 def _as_2col_pairs(bd: np.ndarray) -> np.ndarray:
