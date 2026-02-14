@@ -41,6 +41,17 @@ except ModuleNotFoundError as exc:
     finite_lifetimes = _torch_required
 
 try:
+    from .distance import wasserstein_distance
+except ModuleNotFoundError as exc:
+    if exc.name not in {"torch", "ot"}:
+        raise
+
+    def _distance_deps_required(*args, **kwargs):
+        raise ImportError("PyTorch and POT (`ot`) are required for `wasserstein_distance`.")
+
+    wasserstein_distance = _distance_deps_required
+
+try:
     from .plots import plot_diagrams
 except ModuleNotFoundError as exc:
     if exc.name != "matplotlib":
@@ -73,4 +84,5 @@ __all__ = ["computePH", "computePH_T",
     "persistence_image",
     "compute_ph_torch",
     "finite_lifetimes",
+    "wasserstein_distance",
     "plot_diagrams"]
