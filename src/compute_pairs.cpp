@@ -72,7 +72,7 @@ void ComputePairs::compute_pairs_main(vector<Cube>& ctr){
 		auto j = i;
 		Cube pivot;
 		bool might_be_apparent_pair = true;
-		bool found_persistence_pair = false;
+		bool found_apparent_pair = false;
 		int num_recurse = 0;
 
 		for(int k = 0; k < config->maxiter; ++k) { // for each column{}
@@ -92,25 +92,24 @@ void ComputePairs::compute_pairs_main(vector<Cube>& ctr){
                 // make the column by enumerating cofaces
                 coface_entries.clear();
                 cofaces.setCoboundaryEnumerator(ctr[j]);
+                const double column_birth = ctr[j].birth;
                 while (cofaces.hasNextCoface()) {
                     coface_entries.push_back(cofaces.nextCoface);
                     // cout << "coface: " << j << endl;
                     // ctr[j].print();
                     // cofaces.nextCoface.print();
-                    if (might_be_apparent_pair && (ctr[j].birth == cofaces.nextCoface.birth)) { // we cannot find this coface on the left (Short-Circuit Evaluation)
-                        if (pivot_column_index.find(cofaces.nextCoface.index) == pivot_column_index.end()) { // If coface is not in pivot list
-                            pivot.copyCube(cofaces.nextCoface);
-                            found_persistence_pair = true;
-                            				break;
-                        } else {
-                            might_be_apparent_pair = false;
+                    if (might_be_apparent_pair && (column_birth == cofaces.nextCoface.birth)) { // we cannot find this coface on the left (Short-Circuit Evaluation)
+                        const auto apparent =
+                            pivot_column_index.insert(std::make_pair(cofaces.nextCoface.index, i));
+                        if (apparent.second) { // If coface is not in pivot list
+                            found_apparent_pair = true;
+                            ++num_apparent_pairs;
+                            break;
                         }
+                        might_be_apparent_pair = false;
                     }
                 }
-                if (found_persistence_pair) {
-                    //pivot_column_index.emplace(pivot.index, i);
-                    pivot_column_index[pivot.index] = i;
-                    num_apparent_pairs++;
+                if (found_apparent_pair) {
                     break;
                 }
                 for(const auto& e : coface_entries){
@@ -119,9 +118,10 @@ void ComputePairs::compute_pairs_main(vector<Cube>& ctr){
             }
             pivot = get_pivot(working_coboundary);
             if (pivot.index != NONE){ // if the column is not reduced to zero
-                auto pair = pivot_column_index.find(pivot.index);
-                if (pair != pivot_column_index.end()) {	// found entry to reduce
-                    j = pair -> second;
+                const auto insert_result =
+                    pivot_column_index.insert(std::make_pair(pivot.index, i));
+                if (!insert_result.second) {	// found entry to reduce
+                    j = insert_result.first->second;
 					num_recurse++;
 //                        cout << i << " to " << j << " " << pivot.index << endl;
                     continue;
@@ -134,8 +134,6 @@ void ComputePairs::compute_pairs_main(vector<Cube>& ctr){
 							cached_column_idx.pop();
 						}
                     }
-                    // pivot_column_index.emplace(pivot.index, i); // column i has the pivot
-					pivot_column_index[pivot.index] = i;
                     double death = pivot.birth;
                     if (birth != death) {
 						wp->emplace_back(WritePairs(dim, ctr[i], pivot, dcg, config->print));
