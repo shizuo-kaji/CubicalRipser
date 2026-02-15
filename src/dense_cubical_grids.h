@@ -48,8 +48,35 @@ public:
         data_.resize(total_size);
     }
 
+    // Fast paths used by hot loops in getBirth().
+    T& operator()(size_t i, size_t j, size_t k) {
+        return data_[i * strides_[0] + j * strides_[1] + k * strides_[2]];
+    }
+
+    const T& operator()(size_t i, size_t j, size_t k) const {
+        return data_[i * strides_[0] + j * strides_[1] + k * strides_[2]];
+    }
+
+    T& operator()(size_t i, size_t j, size_t k, size_t l) {
+        return data_[i * strides_[0] + j * strides_[1] + k * strides_[2] + l * strides_[3]];
+    }
+
+    const T& operator()(size_t i, size_t j, size_t k, size_t l) const {
+        return data_[i * strides_[0] + j * strides_[1] + k * strides_[2] + l * strides_[3]];
+    }
+
     template<typename... Indices>
     T& operator()(Indices... indices) {
+        std::array<size_t, sizeof...(indices)> idx_array = {static_cast<size_t>(indices)...};
+        size_t flat_index = 0;
+        for (size_t i = 0; i < idx_array.size(); ++i) {
+            flat_index += idx_array[i] * strides_[i];
+        }
+        return data_[flat_index];
+    }
+
+    template<typename... Indices>
+    const T& operator()(Indices... indices) const {
         std::array<size_t, sizeof...(indices)> idx_array = {static_cast<size_t>(indices)...};
         size_t flat_index = 0;
         for (size_t i = 0; i < idx_array.size(); ++i) {

@@ -20,6 +20,31 @@ with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 using namespace std;
 
+namespace {
+inline double max2(const double a, const double b) {
+    return (a < b) ? b : a;
+}
+
+inline double max4(
+    const double a, const double b, const double c, const double d) {
+    return max2(max2(a, b), max2(c, d));
+}
+
+inline double max8(
+    const double a, const double b, const double c, const double d,
+    const double e, const double f, const double g, const double h) {
+    return max2(max4(a, b, c, d), max4(e, f, g, h));
+}
+
+inline double max16(
+    const double a, const double b, const double c, const double d,
+    const double e, const double f, const double g, const double h,
+    const double i, const double j, const double k, const double l,
+    const double m, const double n, const double o, const double p) {
+    return max2(max8(a, b, c, d, e, f, g, h), max8(i, j, k, l, m, n, o, p));
+}
+} // namespace
+
 
 DenseCubicalGrids::DenseCubicalGrids(Config& _config)  {
     config = &_config;
@@ -65,20 +90,24 @@ double DenseCubicalGrids::getBirth(uint32_t cx, uint32_t cy, uint32_t cz, uint32
 			case 2:
 				switch (cm) {
 				case 0: // x - y (fix z)
-					return max({ (*dense)(cx+1, cy+1, cz+1), (*dense)(cx+2, cy+1, cz+1),
-						(*dense)(cx+2, cy+2, cz+1), (*dense)(cx+1, cy+2, cz+1) });
+                    return max4(
+                        (*dense)(cx+1, cy+1, cz+1), (*dense)(cx+2, cy+1, cz+1),
+                        (*dense)(cx+2, cy+2, cz+1), (*dense)(cx+1, cy+2, cz+1));
 				case 1: // z - x (fix y)
-					return max({ (*dense)(cx+1, cy+1, cz+1), (*dense)(cx+1, cy+1, cz+2),
-						(*dense)(cx+2, cy+1, cz+2), (*dense)(cx+2, cy+1, cz+1) });
+                    return max4(
+                        (*dense)(cx+1, cy+1, cz+1), (*dense)(cx+1, cy+1, cz+2),
+                        (*dense)(cx+2, cy+1, cz+2), (*dense)(cx+2, cy+1, cz+1));
 				case 2: // y - z (fix x)
-					return max({ (*dense)(cx+1, cy+1, cz+1), (*dense)(cx+1, cy+2, cz+1),
-						(*dense)(cx+1, cy+2, cz+2), (*dense)(cx+1, cy+1, cz+2) });
+                    return max4(
+                        (*dense)(cx+1, cy+1, cz+1), (*dense)(cx+1, cy+2, cz+1),
+                        (*dense)(cx+1, cy+2, cz+2), (*dense)(cx+1, cy+1, cz+2));
 				}
 			case 3:
-				return max({ (*dense)(cx+1, cy+1, cz+1), (*dense)(cx+2, cy+1, cz+1),
-					(*dense)(cx+2, cy+2, cz+1), (*dense)(cx+1, cy+2, cz+1),
-					(*dense)(cx+1, cy+1, cz+2), (*dense)(cx+2, cy+1, cz+2),
-					(*dense)(cx+2, cy+2, cz+2), (*dense)(cx+1, cy+2, cz+2) });
+                return max8(
+                    (*dense)(cx+1, cy+1, cz+1), (*dense)(cx+2, cy+1, cz+1),
+                    (*dense)(cx+2, cy+2, cz+1), (*dense)(cx+1, cy+2, cz+1),
+                    (*dense)(cx+1, cy+1, cz+2), (*dense)(cx+2, cy+1, cz+2),
+                    (*dense)(cx+2, cy+2, cz+2), (*dense)(cx+1, cy+2, cz+2));
 			}
 	} else {
 		// 4D case
@@ -101,58 +130,69 @@ double DenseCubicalGrids::getBirth(uint32_t cx, uint32_t cy, uint32_t cz, uint32
 			case 2:
 				switch (cm) {
 				case 0: // x - y (fix z,w)
-					return max({ (*dense)(cx+1, cy+1, cz+1, cw+1), (*dense)(cx+2, cy+1, cz+1, cw+1),
-						(*dense)(cx+2, cy+2, cz+1, cw+1), (*dense)(cx+1, cy+2, cz+1, cw+1) });
+                    return max4(
+                        (*dense)(cx+1, cy+1, cz+1, cw+1), (*dense)(cx+2, cy+1, cz+1, cw+1),
+                        (*dense)(cx+2, cy+2, cz+1, cw+1), (*dense)(cx+1, cy+2, cz+1, cw+1));
 				case 1: // z - x (fix y,w)
-					return max({ (*dense)(cx+1, cy+1, cz+1, cw+1), (*dense)(cx+1, cy+1, cz+2, cw+1),
-						(*dense)(cx+2, cy+1, cz+2, cw+1), (*dense)(cx+2, cy+1, cz+1, cw+1) });
+                    return max4(
+                        (*dense)(cx+1, cy+1, cz+1, cw+1), (*dense)(cx+1, cy+1, cz+2, cw+1),
+                        (*dense)(cx+2, cy+1, cz+2, cw+1), (*dense)(cx+2, cy+1, cz+1, cw+1));
 				case 2: // y - z (fix x,w)
-					return max({ (*dense)(cx+1, cy+1, cz+1, cw+1), (*dense)(cx+1, cy+2, cz+1, cw+1),
-						(*dense)(cx+1, cy+2, cz+2, cw+1), (*dense)(cx+1, cy+1, cz+2, cw+1) });
+                    return max4(
+                        (*dense)(cx+1, cy+1, cz+1, cw+1), (*dense)(cx+1, cy+2, cz+1, cw+1),
+                        (*dense)(cx+1, cy+2, cz+2, cw+1), (*dense)(cx+1, cy+1, cz+2, cw+1));
 				case 3: // w - x (fix y,z)
-					return max({ (*dense)(cx+1, cy+1, cz+1, cw+1), (*dense)(cx+1, cy+1, cz+1, cw+2),
-						(*dense)(cx+2, cy+1, cz+1, cw+2), (*dense)(cx+2, cy+1, cz+1, cw+1) });
+                    return max4(
+                        (*dense)(cx+1, cy+1, cz+1, cw+1), (*dense)(cx+1, cy+1, cz+1, cw+2),
+                        (*dense)(cx+2, cy+1, cz+1, cw+2), (*dense)(cx+2, cy+1, cz+1, cw+1));
 				case 4: // w - y (fix x,z)
-					return max({ (*dense)(cx+1, cy+1, cz+1, cw+1), (*dense)(cx+1, cy+1, cz+1, cw+2),
-						(*dense)(cx+1, cy+2, cz+1, cw+2), (*dense)(cx+1, cy+2, cz+1, cw+1) });
+                    return max4(
+                        (*dense)(cx+1, cy+1, cz+1, cw+1), (*dense)(cx+1, cy+1, cz+1, cw+2),
+                        (*dense)(cx+1, cy+2, cz+1, cw+2), (*dense)(cx+1, cy+2, cz+1, cw+1));
 				case 5: // w - z (fix x,y)
-					return max({ (*dense)(cx+1, cy+1, cz+1, cw+1), (*dense)(cx+1, cy+1, cz+1, cw+2),
-						(*dense)(cx+1, cy+1, cz+2, cw+2), (*dense)(cx+1, cy+1, cz+2, cw+1) });
+                    return max4(
+                        (*dense)(cx+1, cy+1, cz+1, cw+1), (*dense)(cx+1, cy+1, cz+1, cw+2),
+                        (*dense)(cx+1, cy+1, cz+2, cw+2), (*dense)(cx+1, cy+1, cz+2, cw+1));
 				}
 			case 3:
 				// 3D faces in 4D space - there are 8 such faces
 				switch (cm) {
 				case 0: // x-y-z (fix w)
-					return max({ (*dense)(cx+1, cy+1, cz+1, cw+1), (*dense)(cx+2, cy+1, cz+1, cw+1),
-						(*dense)(cx+2, cy+2, cz+1, cw+1), (*dense)(cx+1, cy+2, cz+1, cw+1),
-						(*dense)(cx+1, cy+1, cz+2, cw+1), (*dense)(cx+2, cy+1, cz+2, cw+1),
-						(*dense)(cx+2, cy+2, cz+2, cw+1), (*dense)(cx+1, cy+2, cz+2, cw+1) });
+                    return max8(
+                        (*dense)(cx+1, cy+1, cz+1, cw+1), (*dense)(cx+2, cy+1, cz+1, cw+1),
+                        (*dense)(cx+2, cy+2, cz+1, cw+1), (*dense)(cx+1, cy+2, cz+1, cw+1),
+                        (*dense)(cx+1, cy+1, cz+2, cw+1), (*dense)(cx+2, cy+1, cz+2, cw+1),
+                        (*dense)(cx+2, cy+2, cz+2, cw+1), (*dense)(cx+1, cy+2, cz+2, cw+1));
 				case 1: // x-y-w (fix z)
-					return max({ (*dense)(cx+1, cy+1, cz+1, cw+1), (*dense)(cx+2, cy+1, cz+1, cw+1),
-						(*dense)(cx+2, cy+2, cz+1, cw+1), (*dense)(cx+1, cy+2, cz+1, cw+1),
-						(*dense)(cx+1, cy+1, cz+1, cw+2), (*dense)(cx+2, cy+1, cz+1, cw+2),
-						(*dense)(cx+2, cy+2, cz+1, cw+2), (*dense)(cx+1, cy+2, cz+1, cw+2) });
+                    return max8(
+                        (*dense)(cx+1, cy+1, cz+1, cw+1), (*dense)(cx+2, cy+1, cz+1, cw+1),
+                        (*dense)(cx+2, cy+2, cz+1, cw+1), (*dense)(cx+1, cy+2, cz+1, cw+1),
+                        (*dense)(cx+1, cy+1, cz+1, cw+2), (*dense)(cx+2, cy+1, cz+1, cw+2),
+                        (*dense)(cx+2, cy+2, cz+1, cw+2), (*dense)(cx+1, cy+2, cz+1, cw+2));
 				case 2: // x-z-w (fix y)
-					return max({ (*dense)(cx+1, cy+1, cz+1, cw+1), (*dense)(cx+2, cy+1, cz+1, cw+1),
-						(*dense)(cx+1, cy+1, cz+2, cw+1), (*dense)(cx+2, cy+1, cz+2, cw+1),
-						(*dense)(cx+1, cy+1, cz+1, cw+2), (*dense)(cx+2, cy+1, cz+1, cw+2),
-						(*dense)(cx+1, cy+1, cz+2, cw+2), (*dense)(cx+2, cy+1, cz+2, cw+2) });
+                    return max8(
+                        (*dense)(cx+1, cy+1, cz+1, cw+1), (*dense)(cx+2, cy+1, cz+1, cw+1),
+                        (*dense)(cx+1, cy+1, cz+2, cw+1), (*dense)(cx+2, cy+1, cz+2, cw+1),
+                        (*dense)(cx+1, cy+1, cz+1, cw+2), (*dense)(cx+2, cy+1, cz+1, cw+2),
+                        (*dense)(cx+1, cy+1, cz+2, cw+2), (*dense)(cx+2, cy+1, cz+2, cw+2));
 				case 3: // y-z-w (fix x)
-					return max({ (*dense)(cx+1, cy+1, cz+1, cw+1), (*dense)(cx+1, cy+2, cz+1, cw+1),
-						(*dense)(cx+1, cy+1, cz+2, cw+1), (*dense)(cx+1, cy+2, cz+2, cw+1),
-						(*dense)(cx+1, cy+1, cz+1, cw+2), (*dense)(cx+1, cy+2, cz+1, cw+2),
-						(*dense)(cx+1, cy+1, cz+2, cw+2), (*dense)(cx+1, cy+2, cz+2, cw+2) });
+                    return max8(
+                        (*dense)(cx+1, cy+1, cz+1, cw+1), (*dense)(cx+1, cy+2, cz+1, cw+1),
+                        (*dense)(cx+1, cy+1, cz+2, cw+1), (*dense)(cx+1, cy+2, cz+2, cw+1),
+                        (*dense)(cx+1, cy+1, cz+1, cw+2), (*dense)(cx+1, cy+2, cz+1, cw+2),
+                        (*dense)(cx+1, cy+1, cz+2, cw+2), (*dense)(cx+1, cy+2, cz+2, cw+2));
 				}
 			case 4:
 				// 4D hypercube
-				return max({ (*dense)(cx+1, cy+1, cz+1, cw+1), (*dense)(cx+2, cy+1, cz+1, cw+1),
-					(*dense)(cx+2, cy+2, cz+1, cw+1), (*dense)(cx+1, cy+2, cz+1, cw+1),
-					(*dense)(cx+1, cy+1, cz+2, cw+1), (*dense)(cx+2, cy+1, cz+2, cw+1),
-					(*dense)(cx+2, cy+2, cz+2, cw+1), (*dense)(cx+1, cy+2, cz+2, cw+1),
-					(*dense)(cx+1, cy+1, cz+1, cw+2), (*dense)(cx+2, cy+1, cz+1, cw+2),
-					(*dense)(cx+2, cy+2, cz+1, cw+2), (*dense)(cx+1, cy+2, cz+1, cw+2),
-					(*dense)(cx+1, cy+1, cz+2, cw+2), (*dense)(cx+2, cy+1, cz+2, cw+2),
-					(*dense)(cx+2, cy+2, cz+2, cw+2), (*dense)(cx+1, cy+2, cz+2, cw+2) });
+                return max16(
+                    (*dense)(cx+1, cy+1, cz+1, cw+1), (*dense)(cx+2, cy+1, cz+1, cw+1),
+                    (*dense)(cx+2, cy+2, cz+1, cw+1), (*dense)(cx+1, cy+2, cz+1, cw+1),
+                    (*dense)(cx+1, cy+1, cz+2, cw+1), (*dense)(cx+2, cy+1, cz+2, cw+1),
+                    (*dense)(cx+2, cy+2, cz+2, cw+1), (*dense)(cx+1, cy+2, cz+2, cw+1),
+                    (*dense)(cx+1, cy+1, cz+1, cw+2), (*dense)(cx+2, cy+1, cz+1, cw+2),
+                    (*dense)(cx+2, cy+2, cz+1, cw+2), (*dense)(cx+1, cy+2, cz+1, cw+2),
+                    (*dense)(cx+1, cy+1, cz+2, cw+2), (*dense)(cx+2, cy+1, cz+2, cw+2),
+                    (*dense)(cx+2, cy+2, cz+2, cw+2), (*dense)(cx+1, cy+2, cz+2, cw+2));
 			}
 	}
 	return threshold;

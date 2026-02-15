@@ -14,6 +14,7 @@ with this program.  If not, see <http://www.gnu.org/licenses/>.
 #pragma once
 #include <vector>
 #include <unordered_map>
+#include <queue>
 #include "config.h"
 
 // #define GOOGLE_HASH
@@ -24,7 +25,15 @@ with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 using namespace std;
 
-typedef priority_queue<Cube, vector<Cube>, CubeComparator> CubeQue;
+typedef vector<Cube> CachedColumn;
+
+class CubeQue : public priority_queue<Cube, vector<Cube>, CubeComparator> {
+public:
+    using priority_queue<Cube, vector<Cube>, CubeComparator>::priority_queue;
+
+    void reserve(size_t n) { this->c.reserve(n); }
+    void clear() { this->c.clear(); }
+};
 
 class ComputePairs{
 private:
@@ -42,7 +51,7 @@ public:
 	ComputePairs(DenseCubicalGrids* _dcg, vector<WritePairs> &_wp, Config&);
 	void compute_pairs_main(vector<Cube>& ctr);
 	void assemble_columns_to_reduce(vector<Cube>& ctr, uint8_t _dim);
-	void add_cache(uint32_t i, CubeQue &wc, unordered_map<uint32_t, CubeQue>& recorded_wc);
+	void add_cache(uint32_t i, CubeQue &wc, unordered_map<uint32_t, CachedColumn>& recorded_wc);
 	Cube pop_pivot(vector<Cube>& column);
 	Cube get_pivot(vector<Cube>& column);
 	Cube pop_pivot(CubeQue& column);

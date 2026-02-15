@@ -19,6 +19,7 @@ with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <unordered_map>
 #include <string>
 #include <cstdint>
+#include <utility>
 #include <time.h>
 
 using namespace std;
@@ -35,12 +36,15 @@ ComputePairs::ComputePairs(DenseCubicalGrids* _dcg, std::vector<WritePairs> &_wp
 
 #ifdef GOOGLE_HASH
     pivot_column_index.set_empty_key(0xffffffff); // for Google hash
+#else
+    pivot_column_index.max_load_factor(0.7f);
 #endif
 }
 
 
 void ComputePairs::compute_pairs_main(vector<Cube>& ctr){
 	vector<Cube> coface_entries; // pivotIDs of cofaces
+    coface_entries.reserve((dcg->dim == 4) ? 8u : 6u);
 	auto ctl_size = ctr.size();
 	if(config->verbose){
 	    cout << "# columns to reduce: " << ctl_size << endl;
@@ -52,13 +56,16 @@ void ComputePairs::compute_pairs_main(vector<Cube>& ctr){
     pivot_column_index.reserve(ctl_size);
 #endif
 	CoboundaryEnumerator cofaces(dcg,dim);
-	unordered_map<uint32_t, CubeQue > recorded_wc;
+	unordered_map<uint32_t, CachedColumn> recorded_wc;
 	queue<uint32_t> cached_column_idx;
+	recorded_wc.max_load_factor(0.7f);
 	recorded_wc.reserve(ctl_size);
     int num_apparent_pairs = 0;
+    CubeQue working_coboundary;
+    working_coboundary.reserve(64);
 
 	for(uint32_t i = 0; i < ctl_size; ++i){  // descending order of birth
-        CubeQue working_coboundary;   // non-zero entries of the column
+        working_coboundary.clear();   // non-zero entries of the column
 		double birth = ctr[i].birth;
 //        cout << i << endl;  ctr[i].print();   // debug
 
@@ -74,10 +81,9 @@ void ComputePairs::compute_pairs_main(vector<Cube>& ctr){
                 auto findWc = recorded_wc.find(j);
                 if(findWc != recorded_wc.end()){ // If the reduced form of the pivot column is cached
                     cache_hit = true;
-                    auto wc = findWc -> second;
-                    while(!wc.empty()){ // add the cached pivot column
-                        working_coboundary.push(wc.top());
-                        wc.pop();
+                    const auto& wc = findWc->second;
+                    for (const auto& c : wc) { // add the cached pivot column
+                        working_coboundary.push(c);
                     }
                 }
 //				assert(might_be_apparent_pair == false); // As there is always cell-coface pair with the same birthtime, the flag should be set by the next block.
@@ -107,7 +113,7 @@ void ComputePairs::compute_pairs_main(vector<Cube>& ctr){
                     num_apparent_pairs++;
                     break;
                 }
-                for(const auto e : coface_entries){
+                for(const auto& e : coface_entries){
                     working_coboundary.push(e);
                 }
             }
@@ -151,18 +157,19 @@ void ComputePairs::compute_pairs_main(vector<Cube>& ctr){
 }
 
 // cache a new reduced column after mod 2
-void ComputePairs::add_cache(uint32_t i, CubeQue &wc, unordered_map<uint32_t, CubeQue>& recorded_wc){
-	CubeQue clean_wc;
+void ComputePairs::add_cache(uint32_t i, CubeQue &wc, unordered_map<uint32_t, CachedColumn>& recorded_wc){
+	CachedColumn clean_wc;
+    clean_wc.reserve(wc.size());
 	while(!wc.empty()){
 		auto c = wc.top();
 		wc.pop();
 		if(!wc.empty() && c.index==wc.top().index){
 			wc.pop();
 		}else{
-			clean_wc.push(c);
+			clean_wc.push_back(c);
 		}
 	}
-	recorded_wc.emplace(i,clean_wc);
+	recorded_wc.emplace(i, std::move(clean_wc));
 }
 
 // get the pivot from a column after mod 2
@@ -231,6 +238,16 @@ void ComputePairs::assemble_columns_to_reduce(vector<Cube>& ctr, uint8_t _dim) {
     if (dim == 0) {
         pivot_column_index.clear();
     }
+    const size_t max_ctr_size =
+        static_cast<size_t>(max_m) *
+        static_cast<size_t>(dcg->ax) *
+        static_cast<size_t>(dcg->ay) *
+        static_cast<size_t>(dcg->az) *
+        static_cast<size_t>(dcg->aw);
+    // Cap reserve to avoid over-allocating when many cells are filtered by threshold.
+    const size_t reserve_target = std::min(max_ctr_size, static_cast<size_t>(8000000));
+    ctr.reserve(reserve_target);
+    const double threshold = dcg->threshold;
     for (uint8_t m = 0; m < max_m; ++m) {
         for(uint32_t w = 0; w < dcg->aw; ++w){
             for(uint32_t z = 0; z < dcg->az; ++z){
@@ -238,9 +255,16 @@ void ComputePairs::assemble_columns_to_reduce(vector<Cube>& ctr, uint8_t _dim) {
                     for (uint32_t x = 0; x < dcg->ax; ++x) {
                         birth = dcg -> getBirth(x,y,z,w,m, dim);
 //                        cout << x << "," << y << "," << z << ", " << m << "," << birth << endl;
-                        Cube v(birth,x,y,z,w,m);
-                        if (birth < dcg -> threshold && pivot_column_index.find(v.index) == pivot_column_index.end()) {
-                            ctr.push_back(v);
+                        if (birth < threshold) {
+                            const uint64_t index =
+                                static_cast<uint64_t>(x)
+                                | (static_cast<uint64_t>(y) << 15)
+                                | (static_cast<uint64_t>(z) << 30)
+                                | (static_cast<uint64_t>(w) << 45)
+                                | (static_cast<uint64_t>(m) << 60);
+                            if (pivot_column_index.find(index) == pivot_column_index.end()) {
+                                ctr.emplace_back(birth, index);
+                            }
                         }
                     }
                 }

@@ -36,19 +36,50 @@ UnionFind::UnionFind(DenseCubicalGrids* _dcg) {
 	//cout << n << " vertices" << endl;
 
 	uint64_t i=0;
-	for (uint32_t w = 0; w < _dcg->aw; ++w) {
-		for (uint32_t z = 0; z < _dcg->az; ++z) {
-			for (uint32_t y = 0; y < _dcg->ay; ++y) {
-				for(uint32_t x = 0; x < _dcg->ax ; ++x){
-					parent[i] = i;
-					birthtime[i] = _dcg->getBirth(x,y,z,w,0,0);
-					time_max[i] = birthtime[i]; // maximum filtration value for the group
-					//cout << x << "," << y << "," << z << "," << w << ": " << birthtime[i] << endl;
-					i++;
-				}
-			}
-		}
-	}
+    const bool tconstruction = _dcg->config->tconstruction;
+    if (!tconstruction) {
+        if (_dcg->dim < 4) {
+            for (uint32_t w = 0; w < _dcg->aw; ++w) {
+                (void)w;
+                for (uint32_t z = 0; z < _dcg->az; ++z) {
+                    for (uint32_t y = 0; y < _dcg->ay; ++y) {
+                        for (uint32_t x = 0; x < _dcg->ax; ++x) {
+                            parent[i] = i;
+                            birthtime[i] = (*_dcg->dense)(x + 1, y + 1, z + 1);
+                            time_max[i] = birthtime[i]; // maximum filtration value for the group
+                            i++;
+                        }
+                    }
+                }
+            }
+        } else {
+            for (uint32_t w = 0; w < _dcg->aw; ++w) {
+                for (uint32_t z = 0; z < _dcg->az; ++z) {
+                    for (uint32_t y = 0; y < _dcg->ay; ++y) {
+                        for (uint32_t x = 0; x < _dcg->ax; ++x) {
+                            parent[i] = i;
+                            birthtime[i] = (*_dcg->dense)(x + 1, y + 1, z + 1, w + 1);
+                            time_max[i] = birthtime[i]; // maximum filtration value for the group
+                            i++;
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        for (uint32_t w = 0; w < _dcg->aw; ++w) {
+            for (uint32_t z = 0; z < _dcg->az; ++z) {
+                for (uint32_t y = 0; y < _dcg->ay; ++y) {
+                    for (uint32_t x = 0; x < _dcg->ax; ++x) {
+                        parent[i] = i;
+                        birthtime[i] = _dcg->getBirth(x, y, z, w, 0, 0);
+                        time_max[i] = birthtime[i]; // maximum filtration value for the group
+                        i++;
+                    }
+                }
+            }
+        }
+    }
 }
 
 // find the root of a node x (specified by the index)

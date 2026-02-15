@@ -38,6 +38,7 @@ void CoboundaryEnumerator::setCoboundaryEnumerator(Cube& _s) {
 
 bool CoboundaryEnumerator::hasNextCoface() {
 	double birth=0;
+    const double threshold = dcg->threshold;
 	auto cx = cube.x();
 	auto cy = cube.y();
 	auto cz = cube.z();
@@ -78,8 +79,8 @@ bool CoboundaryEnumerator::hasNextCoface() {
             int z = cz + offsets[dim][variant][i][2];
             int m = offsets[dim][variant][i][3];
             birth = dcg->getBirth(x,y,z,cw,m, dim+1);
-            nextCoface = Cube(birth, x,y,z,cw, m);
-            if (birth != dcg->threshold) {
+            if (birth != threshold) {
+                nextCoface = Cube(birth, x,y,z,cw, m);
                 //cube.print();nextCoface.print();
                 position = i + 1; return true; }
         }
@@ -93,8 +94,8 @@ bool CoboundaryEnumerator::hasNextCoface() {
 		// Helper lambdas to emit candidate and advance position
 		auto emit = [&](int nx, int ny, int nz, int nw, uint8_t nm) -> bool {
 			birth = dcg->getBirth(nx, ny, nz, nw, nm, dim + 1);
-			nextCoface = Cube(birth, nx, ny, nz, nw, nm);
-			if (birth != dcg->threshold) {
+			if (birth != threshold) {
+				nextCoface = Cube(birth, nx, ny, nz, nw, nm);
 				//cube.print();
 				//nextCoface.print();
 				return true;

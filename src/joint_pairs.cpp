@@ -34,6 +34,16 @@ JointPairs::JointPairs(DenseCubicalGrids* _dcg, vector<WritePairs>& _wp, Config&
 // Enumerate all edges based on given types
 void JointPairs::enum_edges(const vector<uint8_t>& types, vector<Cube>& ctr) {
     ctr.clear();
+    const size_t max_edges =
+        static_cast<size_t>(types.size()) *
+        static_cast<size_t>(dcg->ax) *
+        static_cast<size_t>(dcg->ay) *
+        static_cast<size_t>(dcg->az) *
+        static_cast<size_t>(dcg->aw);
+    // Cap reserve to avoid huge upfront allocations on large grids.
+    const size_t reserve_target = std::min(max_edges, static_cast<size_t>(8000000));
+    ctr.reserve(reserve_target);
+    const double threshold = config->threshold;
     // Iterate over each type (order of loops matters for performance)
     for (const auto& m : types) {
         for (uint32_t w = 0; w < dcg->aw; ++w) {
@@ -42,7 +52,7 @@ void JointPairs::enum_edges(const vector<uint8_t>& types, vector<Cube>& ctr) {
                     for (uint32_t x = 0; x < dcg->ax; ++x) {
                         double birth = dcg->getBirth(x, y, z, w, m, 1);
                         // If birth value is below the threshold, add to the list
-                        if (birth < config->threshold) {
+                        if (birth < threshold) {
                             ctr.emplace_back(birth, x, y, z, w, m);
                         }
                     }
