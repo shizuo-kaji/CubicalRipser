@@ -76,7 +76,7 @@ def compute_ph(
     - inf_cutoff: value to use as cutoff for detecting DBL_MAX (default is _INF_CUTOFF)
 
     Returns
-    - np.ndarray of shape (n, 9): columns are
+    - np.ndarray of shape (n, 9) (or (n,11) in 4D case): columns are
       [dim, birth, death, b_x, b_y, b_z, d_x, d_y, d_z]
     """
     if arr.dtype != np.float64:

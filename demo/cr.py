@@ -507,7 +507,6 @@ Examples:
                 top_dim=args.top_dim,
                 embedded=args.embedded
             )
-
         # Display Betti numbers for dimensions 0, 1, 2
         print("Betti numbers: ", [res[res[:, 0] == i].shape[0] for i in range(args.maxdim + 1)])
 
@@ -529,7 +528,7 @@ Examples:
             np.savetxt(
                 args.output, res,
                 delimiter=',',
-                fmt='%i,%18.10f,%18.10f'+fmt_add,
+                fmt='%i,%18.10f,%18.10f,'+fmt_add,
                 header=header
             )
         else:

@@ -125,30 +125,33 @@ py::array_t<double> computePH(py::array_t<double> img, int maxdim=3, bool top_di
 	auto pad_y = (dcg->ay - dcg->img_y)/2;
 	auto pad_z = (dcg->az - dcg->img_z)/2;
 	auto pad_w = (dcg->aw - dcg->img_w)/2;
-	int num_column = 9;
-	int shift_column = 0;
-	if (dcg->dim > 3) {
-		num_column = 11;
-		shift_column = 1;
-	};
 	int64_t p = writepairs.size();
-	vector<ssize_t> result_shape{p,num_column};
+	int num_column = (dcg->dim > 3) ? 11 : 9;
+	vector<ssize_t> result_shape{p, num_column};
 	py::array_t<double> data{result_shape};
 	auto data_ptr = data.mutable_data();
+	
 	for(int64_t i = 0; i < p; ++i){
-        data_ptr[i * num_column + 0] = writepairs[i].dim;
-        data_ptr[i * num_column + 1] = writepairs[i].birth;
-        data_ptr[i * num_column + 2] = writepairs[i].death;
-        data_ptr[i * num_column + 3] = writepairs[i].birth_x - pad_x;
-        data_ptr[i * num_column + 4] = writepairs[i].birth_y - pad_y;
-        data_ptr[i * num_column + 5] = writepairs[i].birth_z - pad_z;
-        data_ptr[i * num_column + 6 + shift_column] = writepairs[i].death_x - pad_x;
-        data_ptr[i * num_column + 7 + shift_column] = writepairs[i].death_y - pad_y;
-        data_ptr[i * num_column + 8 + shift_column] = writepairs[i].death_z - pad_z;
+		int offset = i * num_column;
+		data_ptr[offset + 0] = writepairs[i].dim;
+		data_ptr[offset + 1] = writepairs[i].birth;
+		data_ptr[offset + 2] = writepairs[i].death;
+		data_ptr[offset + 3] = writepairs[i].birth_x - pad_x;
+		data_ptr[offset + 4] = writepairs[i].birth_y - pad_y;
+		data_ptr[offset + 5] = writepairs[i].birth_z - pad_z;
+		
 		if (dcg->dim > 3) {
-			data_ptr[i * num_column + 6] = writepairs[i].birth_w - pad_w;
-			data_ptr[i * num_column + 9] = writepairs[i].death_w - pad_w;
-		};
-	};
+			data_ptr[offset + 6] = writepairs[i].birth_w - pad_w;
+			data_ptr[offset + 7] = writepairs[i].death_x - pad_x;
+			data_ptr[offset + 8] = writepairs[i].death_y - pad_y;
+			data_ptr[offset + 9] = writepairs[i].death_z - pad_z;
+			data_ptr[offset + 10] = writepairs[i].death_w - pad_w;
+		} else {
+			data_ptr[offset + 6] = writepairs[i].death_x - pad_x;
+			data_ptr[offset + 7] = writepairs[i].death_y - pad_y;
+			data_ptr[offset + 8] = writepairs[i].death_z - pad_z;
+		}
+	}
+
 	return data;
 }
