@@ -66,13 +66,14 @@ def compute_ph(
     top_dim: bool = False,
     embedded: bool = False,
     location: str = "yes",
+    n_jobs: int = 0,
     inf_cutoff: bool = True,
 ) -> np.ndarray:
     """Compute persistent homology using `cripser` or `tcripser`.
 
     Parameters
     - arr: numpy array (1D/2D/3D/4D) of dtype float64
-    - maxdim, top_dim, embedded, location: forwarded to the pybind function
+    - maxdim, top_dim, embedded, location, n_jobs: forwarded to the pybind function
     - inf_cutoff: value to use as cutoff for detecting DBL_MAX (default is _INF_CUTOFF)
 
     Returns
@@ -82,8 +83,19 @@ def compute_ph(
     if arr.dtype != np.float64:
         arr = arr.astype(np.float64, copy=False)
     #mod = importlib.import_module(module)
-    func = computePH_T if filtration.upper() == "T" else computePH
-    out = func(arr, maxdim=maxdim, top_dim=top_dim, embedded=embedded, location=location)
+    if filtration.upper() == "T":
+        if n_jobs != 0:
+            raise ValueError("n_jobs is currently supported only for filtration='V'.")
+        out = computePH_T(arr, maxdim=maxdim, top_dim=top_dim, embedded=embedded, location=location)
+    else:
+        out = computePH(
+            arr,
+            maxdim=maxdim,
+            top_dim=top_dim,
+            embedded=embedded,
+            location=location,
+            n_jobs=n_jobs,
+        )
     # Convert CubicalRipser's DBL_MAX to np.inf
     if inf_cutoff:
         mask = out[:, 2] >= _INF_CUTOFF  # death column is index 2

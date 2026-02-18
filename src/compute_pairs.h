@@ -15,7 +15,9 @@ with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <vector>
 #include <unordered_map>
 #include <queue>
+#include <cstddef>
 #include "config.h"
+#include "cube.h"
 
 // #define GOOGLE_HASH
 
@@ -26,6 +28,7 @@ with this program.  If not, see <http://www.gnu.org/licenses/>.
 using namespace std;
 
 typedef vector<Cube> CachedColumn;
+class CoboundaryEnumerator;
 
 class CubeQue : public priority_queue<Cube, vector<Cube>, CubeComparator> {
 public:
@@ -37,6 +40,15 @@ public:
 
 class ComputePairs{
 private:
+	struct SparseColumn {
+		std::vector<Cube> entries;
+
+		void reserve(std::size_t n) { entries.reserve(n); }
+		void normalize();
+		Cube pivot() const { return entries.empty() ? Cube() : entries.front(); }
+		void xor_with(const SparseColumn& rhs);
+	};
+
 	DenseCubicalGrids* dcg;
 #ifdef GOOGLE_HASH
     google::dense_hash_map<uint64_t, uint32_t> pivot_column_index;
@@ -46,6 +58,20 @@ private:
 	uint8_t dim;
 	vector<WritePairs> *wp;
 	Config* config;
+
+	void compute_pairs_main_chunked(std::vector<Cube>& ctr);
+	void assemble_initial_columns_chunk(
+		std::vector<Cube>& ctr,
+		uint32_t begin,
+		uint32_t end,
+		std::vector<SparseColumn>& out_columns);
+	void speculative_pre_reduce_window(
+		std::vector<SparseColumn>& chunk_columns,
+		uint32_t chunk_begin,
+		uint32_t window_begin,
+		uint32_t window_end,
+		const std::vector<SparseColumn>& reduced_columns);
+	void make_initial_column(const Cube& cube, SparseColumn& out_column, CoboundaryEnumerator& cofaces);
 
 public:
 	ComputePairs(DenseCubicalGrids* _dcg, vector<WritePairs> &_wp, Config&);

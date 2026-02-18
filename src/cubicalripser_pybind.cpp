@@ -45,7 +45,7 @@ PYBIND11_MODULE(CRIPSER_MODULE_NAME, m) {
 
     m.def("computePH", &computePH, "Compute Persistent Homology",
           py::arg("arr"),  py::arg("maxdim")=2, py::arg("top_dim")=false,
-          py::arg("embedded")=false, py::arg("location")="yes");
+          py::arg("embedded")=false, py::arg("location")="yes", py::arg("n_jobs")=0);
 
 #ifdef VERSION_INFO
     m.attr("__version__") = VERSION_INFO;
