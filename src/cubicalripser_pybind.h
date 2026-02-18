@@ -18,7 +18,6 @@ with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <unordered_map>
 #include <string>
 #include <cstdint>
-#include <cstdlib>
 #include <stdexcept>
 
 #if defined(_MSC_VER)
@@ -45,28 +44,6 @@ py::array_t<double> computePH(py::array_t<double> img, int maxdim=3, bool top_di
 	// we ignore "location" argument
 	Config config;
 	config.format = NUMPY;
-	if (const char* env = std::getenv("CRIPSER_EXPERIMENTAL_CHUNKED_REDUCTION")) {
-		const std::string value(env);
-		config.experimental_chunked_reduction = !(value == "0" || value == "false" || value == "FALSE");
-	}
-	if (const char* env = std::getenv("CRIPSER_EXPERIMENTAL_CHUNK_SIZE")) {
-		const auto parsed = std::strtoul(env, nullptr, 10);
-		if (parsed > 0) {
-			config.experimental_chunk_size = static_cast<uint32_t>(parsed);
-		}
-	}
-	if (const char* env = std::getenv("CRIPSER_EXPERIMENTAL_CHUNK_WORKERS")) {
-		config.experimental_chunk_workers = static_cast<uint32_t>(std::strtoul(env, nullptr, 10));
-	}
-	if (const char* env = std::getenv("CRIPSER_EXPERIMENTAL_WINDOW_SIZE")) {
-		const auto parsed = std::strtoul(env, nullptr, 10);
-		if (parsed > 0) {
-			config.experimental_window_size = static_cast<uint32_t>(parsed);
-		}
-	}
-	if (const char* env = std::getenv("CRIPSER_EXPERIMENTAL_RELAX_ROUNDS")) {
-		config.experimental_relax_rounds = static_cast<uint32_t>(std::strtoul(env, nullptr, 10));
-	}
 	if (n_jobs < 0) {
 		throw std::invalid_argument("n_jobs must be >= 0");
 	}
