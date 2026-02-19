@@ -24,7 +24,6 @@ with this program. If not, see <http://www.gnu.org/licenses/>.
 #include <memory>
 #include <sstream>
 #include <array>
-#include <limits>
 
 #include "cube.h"
 #include "dense_cubical_grids.h"
@@ -65,18 +64,6 @@ void print_usage() {
               << "                    compute_pairs  (slow in most cases)\n"
               << "  --min_recursion_to_cache, -mc  minimum number of recursion for a reduced column to be cached\n"
               << "  --cache_size, -c    maximum number of reduced columns to be cached\n"
-              << "  --experimental_chunked_reduction\n"
-              << "                    use experimental chunked reduction path for compute_pairs\n"
-              << "  --experimental_chunk_size <n>\n"
-              << "                    chunk size for experimental chunked reduction\n"
-              << "  --experimental_window_size <n>\n"
-              << "                    window size inside each experimental chunk\n"
-              << "  --experimental_relax_rounds <n>\n"
-              << "                    Jacobi relaxation rounds per window (0 disables)\n"
-              << "  --experimental_chunk_workers <n>\n"
-              << "                    worker threads for experimental chunked path (0 = auto)\n"
-              << "  --n_jobs <n>, -j <n>\n"
-              << "                    switch mode by worker count (1: single, >1: parallel)\n"
               << "  --output, -o        name of the output file\n"
               << "  --print, -p         print persistence pairs on console\n"
               << "  --top_dim          compute only for top dimension using Alexander duality\n"
@@ -97,21 +84,6 @@ public:
 
 private:
     Config config_;
-
-    void apply_n_jobs_override() {
-        if (config_.n_jobs == 0) {
-            return;
-        }
-        if (config_.n_jobs == 1) {
-            // Force the legacy single-thread reduction path.
-            config_.experimental_chunked_reduction = false;
-            config_.experimental_chunk_workers = 1;
-            return;
-        }
-        // n_jobs > 1: force experimental parallel path with explicit workers.
-        config_.experimental_chunked_reduction = true;
-        config_.experimental_chunk_workers = config_.n_jobs;
-    }
 
     void parse(int argc, char** argv) {
         for (int i = 1; i < argc; ++i) {
@@ -173,65 +145,6 @@ private:
                     throw std::runtime_error("Invalid cache size value");
                 }
             }
-            else if (arg == "--experimental_chunked_reduction") {
-                config_.experimental_chunked_reduction = true;
-            }
-            else if (arg == "--experimental_chunk_size") {
-                if (i + 1 >= argc) throw std::runtime_error("Missing experimental chunk size value");
-                try {
-                    const auto parsed = std::stoul(argv[++i]);
-                    if (parsed == 0) {
-                        throw std::runtime_error("Experimental chunk size must be > 0");
-                    }
-                    config_.experimental_chunk_size = static_cast<uint32_t>(parsed);
-                } catch (const std::exception& e) {
-                    throw std::runtime_error("Invalid experimental chunk size value");
-                }
-            }
-            else if (arg == "--experimental_chunk_workers") {
-                if (i + 1 >= argc) throw std::runtime_error("Missing experimental chunk workers value");
-                try {
-                    config_.experimental_chunk_workers = static_cast<uint32_t>(std::stoul(argv[++i]));
-                } catch (const std::exception& e) {
-                    throw std::runtime_error("Invalid experimental chunk workers value");
-                }
-            }
-            else if (arg == "--experimental_window_size") {
-                if (i + 1 >= argc) throw std::runtime_error("Missing experimental window size value");
-                try {
-                    const auto parsed = std::stoul(argv[++i]);
-                    if (parsed == 0) {
-                        throw std::runtime_error("Experimental window size must be > 0");
-                    }
-                    config_.experimental_window_size = static_cast<uint32_t>(parsed);
-                } catch (const std::exception& e) {
-                    throw std::runtime_error("Invalid experimental window size value");
-                }
-            }
-            else if (arg == "--experimental_relax_rounds") {
-                if (i + 1 >= argc) throw std::runtime_error("Missing experimental relax rounds value");
-                try {
-                    config_.experimental_relax_rounds = static_cast<uint32_t>(std::stoul(argv[++i]));
-                } catch (const std::exception& e) {
-                    throw std::runtime_error("Invalid experimental relax rounds value");
-                }
-            }
-            else if (arg == "--n_jobs" || arg == "-j") {
-                if (i + 1 >= argc) throw std::runtime_error("Missing n_jobs value");
-                try {
-                    const std::string value(argv[++i]);
-                    if (!value.empty() && value.front() == '-') {
-                        throw std::runtime_error("Invalid n_jobs value");
-                    }
-                    const unsigned long parsed = std::stoul(value);
-                    if (parsed > std::numeric_limits<uint32_t>::max()) {
-                        throw std::runtime_error("Invalid n_jobs value");
-                    }
-                    config_.n_jobs = static_cast<uint32_t>(parsed);
-                } catch (const std::exception& e) {
-                    throw std::runtime_error("Invalid n_jobs value");
-                }
-            }
             else if (arg == "--print" || arg == "-p") {
                 config_.print = true;
             }
@@ -252,14 +165,15 @@ private:
                 }
             }
             else {
+                if (!arg.empty() && arg[0] == '-') {
+                    throw std::runtime_error("Unknown option: " + arg);
+                }
                 if (!config_.filename.empty()) {
                     throw std::runtime_error("Multiple input files specified");
                 }
                 config_.filename = argv[i];
             }
         }
-
-        apply_n_jobs_override();
 
         if (config_.filename.empty()) {
             throw std::runtime_error("No input file specified");

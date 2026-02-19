@@ -40,23 +40,15 @@ using namespace std;
 namespace py = pybind11;
 
 /////////////////////////////////////////////
-py::array_t<double> computePH(py::array_t<double> img, int maxdim=3, bool top_dim=false, bool embedded=false, const std::string &location="yes", int n_jobs=0){
+py::array_t<double> computePH(
+	py::array_t<double> img,
+	int maxdim=3,
+	bool top_dim=false,
+	bool embedded=false,
+	const std::string &location="yes"){
 	// we ignore "location" argument
 	Config config;
 	config.format = NUMPY;
-	if (n_jobs < 0) {
-		throw std::invalid_argument("n_jobs must be >= 0");
-	}
-	if (n_jobs > 0) {
-		config.n_jobs = static_cast<uint32_t>(n_jobs);
-		if (config.n_jobs == 1) {
-			config.experimental_chunked_reduction = false;
-			config.experimental_chunk_workers = 1;
-		} else {
-			config.experimental_chunked_reduction = true;
-			config.experimental_chunk_workers = config.n_jobs;
-		}
-	}
 
 	vector<WritePairs> writepairs; // (dim birth death x y z)
 	writepairs.reserve(1000);
