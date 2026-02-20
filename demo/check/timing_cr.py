@@ -197,13 +197,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--cubicalripser-bin",
-        default="src/cubicalripser",
-        help="Path to cubicalripser binary (default: src/cubicalripser)",
+        default="build/cubicalripser",
+        help="Path to cubicalripser binary (default: build/cubicalripser)",
     )
     parser.add_argument(
         "--tcubicalripser-bin",
-        default="src/tcubicalripser",
-        help="Path to tcubicalripser binary (default: src/tcubicalripser)",
+        default="build/tcubicalripser",
+        help="Path to tcubicalripser binary (default: build/tcubicalripser)",
     )
     parser.add_argument("--runs", type=int, default=3, help="Timed runs per case (default: 3)")
     parser.add_argument("--warmup", type=int, default=1, help="Warmup runs per case (default: 1)")
