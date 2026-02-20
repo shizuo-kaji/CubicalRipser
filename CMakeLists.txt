@@ -25,21 +25,6 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter Development.Module)
 # Include directories
 include_directories("src/")
 
-if(APPLE)
-    # Apple Clang does not cleanly support OpenMP natively.
-    message(STATUS "Mac OpenMP manual override enabled.")
-    add_compile_options("-Xpreprocessor" "-fopenmp" "-I/opt/homebrew/opt/libomp/include" "-I/usr/local/opt/libomp/include")
-    set(OpenMP_CXX_FOUND TRUE)
-else()
-    find_package(OpenMP)
-    if(OpenMP_CXX_FOUND)
-        message(STATUS "OpenMP found, enabling multithreading.")
-        add_compile_options(${OpenMP_CXX_FLAGS})
-    else()
-        message(STATUS "OpenMP not found, compiling sequentially.")
-    endif()
-endif()
-
 # Create static libraries
 add_library(mylib STATIC
     src/compute_pairs.cpp
@@ -56,14 +41,6 @@ add_library(vmylib STATIC
 add_library(tmylib STATIC
     src/dense_cubical_grids_T.cpp
 )
-
-if(OpenMP_CXX_FOUND)
-    if(TARGET OpenMP::OpenMP_CXX)
-        target_link_libraries(mylib PUBLIC OpenMP::OpenMP_CXX)
-        target_link_libraries(vmylib PUBLIC OpenMP::OpenMP_CXX)
-        target_link_libraries(tmylib PUBLIC OpenMP::OpenMP_CXX)
-    endif()
-endif()
 
 # Python modules using pybind11
 add_subdirectory(pybind11)
@@ -94,13 +71,6 @@ target_link_libraries(cubicalripser PRIVATE mylib vmylib)
 
 add_executable(tcubicalripser src/cubicalripser.cpp)
 target_link_libraries(tcubicalripser PRIVATE mylib tmylib)
-
-if(APPLE)
-    target_link_libraries(cubicalripser PRIVATE "-L/opt/homebrew/opt/libomp/lib" "-L/usr/local/opt/libomp/lib" "-lomp")
-    target_link_libraries(tcubicalripser PRIVATE "-L/opt/homebrew/opt/libomp/lib" "-L/usr/local/opt/libomp/lib" "-lomp")
-    target_link_libraries(_cripser PRIVATE "-L/opt/homebrew/opt/libomp/lib" "-L/usr/local/opt/libomp/lib" "-lomp")
-    target_link_libraries(tcripser PRIVATE "-L/opt/homebrew/opt/libomp/lib" "-L/usr/local/opt/libomp/lib" "-lomp")
-endif()
 
 # Optional: Group libraries and executables in folders in IDEs
 set_target_properties(mylib vmylib tmylib _cripser tcripser cubicalripser tcubicalripser PROPERTIES FOLDER "cripser")
