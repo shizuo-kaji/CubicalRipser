@@ -21,9 +21,9 @@ with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <unordered_map>
 #include <utility>
 #include <vector>
-#ifdef _OPENMP
-#include <omp.h>
-#endif
+// #ifdef _OPENMP
+// #include <omp.h>
+// #endif
 
 using namespace std;
 
