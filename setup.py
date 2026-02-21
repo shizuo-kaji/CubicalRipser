@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import glob
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -86,8 +87,24 @@ class CMakeBuild(build_ext):
                 "-DPython_EXECUTABLE=" + sys.executable,
                 "-DPython3_EXECUTABLE=" + sys.executable,
                 f"-DCRIPSER_VERSION={version}",
-                ext.sourcedir,
             ]
+            if sys.platform == "darwin":
+                deployment_target = os.environ.get("MACOSX_DEPLOYMENT_TARGET")
+                if deployment_target:
+                    configure_cmd.append(f"-DCMAKE_OSX_DEPLOYMENT_TARGET={deployment_target}")
+
+                # cbuildwheel sets ARCHFLAGS (e.g. "-arch x86_64" / "-arch arm64 -arch x86_64");
+                # propagate this to CMake so wheel tags and binary slices stay consistent.
+                arch_tokens = shlex.split(os.environ.get("ARCHFLAGS", ""))
+                archs = [
+                    arch_tokens[i + 1]
+                    for i, token in enumerate(arch_tokens[:-1])
+                    if token == "-arch"
+                ]
+                if archs:
+                    configure_cmd.append(f"-DCMAKE_OSX_ARCHITECTURES={';'.join(archs)}")
+
+            configure_cmd.append(ext.sourcedir)
             subprocess.check_call(configure_cmd, cwd=build_temp)  # noqa: S603,S607
             self._configured = True
 

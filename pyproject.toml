@@ -31,7 +31,7 @@ archs = ["auto64"]
 
 [tool.cibuildwheel.macos]
 archs = ["x86_64", "universal2", "arm64"]
-environment = { ARCHFLAGS = "-arch arm64 -arch x86_64" }
+environment = { MACOSX_DEPLOYMENT_TARGET = "11.0" }
 
 [tool.cibuildwheel.windows]
 archs = ["AMD64"]
