@@ -40,6 +40,20 @@ add_library(vmylib STATIC
 add_library(tmylib STATIC
     src/dense_cubical_grids_T.cpp
 )
+# OpenMP
+find_package(OpenMP)
+if(OpenMP_CXX_FOUND AND NOT APPLE)
+    message(STATUS "OpenMP found, enabling multithreading.")
+    add_compile_options(${OpenMP_CXX_FLAGS})
+    if(TARGET OpenMP::OpenMP_CXX)
+        target_link_libraries(mylib PUBLIC OpenMP::OpenMP_CXX)
+        target_link_libraries(vmylib PUBLIC OpenMP::OpenMP_CXX)
+        target_link_libraries(tmylib PUBLIC OpenMP::OpenMP_CXX)
+    endif()
+else()
+    set(OpenMP FALSE)
+    message(STATUS "OpenMP not found, compiling sequentially.")
+endif()
 
 # Python modules using pybind11
 add_subdirectory(pybind11)

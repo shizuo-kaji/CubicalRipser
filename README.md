@@ -508,6 +508,8 @@ The following notes are based on limited understanding and tests and may be inco
   - V-construction
 
 ## Release Notes
+- **v0.0.31**: Changed module structure (hopefully, backward compatible)
+- **v0.0.30**: Improved cache resulting in large speedup
 - **v0.0.24**: Repository renamed from `CubicalRipser_3dim` to `CubicalRipser`.
   - update old remote if needed:
     ```bash

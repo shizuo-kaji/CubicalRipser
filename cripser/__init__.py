@@ -20,9 +20,9 @@ from .image_loader import (
 from .transform import SUPPORTED_TRANSFORMS, binarize, apply_transform, preprocess_image
 from .vectorization import create_PH_histogram_volume, persistence_image
 try:
-    from tcripser import computePH as computePH_T
+    from .tcripser import computePH as computePH_T
 except ImportError:
-    ValueError(
+    raise ValueError(
         "tcripser is not installed. Please install it to use the T-construction."
     )
 

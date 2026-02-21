@@ -142,13 +142,15 @@ if __name__ == "__main__":
         ext_modules=[
             # Place _cripser inside the "cripser" package
             CMakeExtension("cripser._cripser", target="_cripser"),
-            # Expose tcripser as a top-level module
-            CMakeExtension("tcripser", target="tcripser"),
+            # Place tcripser in the same package directory as _cripser
+            CMakeExtension("cripser.tcripser", target="tcripser"),
         ],
         cmdclass={"build_ext": CMakeBuild},
         packages=[
             "cripser*",
         ],
+        # Backward-compatible top-level import: `import tcripser`
+        py_modules=["tcripser"],
         # Avoid copying arbitrary files (e.g., egg-info) into wheels on Windows
         include_package_data=False,
         zip_safe=False,

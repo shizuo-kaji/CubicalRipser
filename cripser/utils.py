@@ -23,9 +23,9 @@ from itertools import product
 import numpy as np
 from ._cripser import computePH, __version__  # type: ignore
 try:
-    from tcripser import computePH as computePH_T
+    from .tcripser import computePH as computePH_T
 except ImportError:
-    ValueError(
+    raise ValueError(
         "tcripser is not installed. Please install it to use the T-construction."
     )
 

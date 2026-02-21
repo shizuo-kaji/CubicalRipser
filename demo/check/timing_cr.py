@@ -295,7 +295,7 @@ def main() -> int:
     if args.mode in {"python", "all"}:
         import numpy as np_import
         import cripser as cripser_import
-
+        print(f"Cripser version: {cripser_import.__version__}")
         np = np_import
         cripser_module = cripser_import
         for dataset_name, input_path in dataset_paths:
