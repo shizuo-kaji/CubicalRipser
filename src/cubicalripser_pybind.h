@@ -31,6 +31,7 @@ typedef SSIZE_T ssize_t;
 #include "compute_pairs.h"
 #include "config.h"
 #include "dense_cubical_grids.h"
+#include "ph_2d.h"
 
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
@@ -94,6 +95,16 @@ py::array_t<double> computePH(
 			jp -> joint_pairs_main(ctr,2); // dim2
 		}
 	}else{
+        // 2-D fast path: avoids the generic LINKFIND + ComputePairs machinery
+        // entirely (dual union-find Alexander-duality algorithm).
+        bool fastpath_handled = false;
+        if (dcg->dim == 2 && dcg->az == 1 && dcg->aw == 1) {
+            fastpath_handled = compute_PH_2d(dcg.get(), writepairs, config);
+        }
+        if (fastpath_handled) {
+            // 2-D fast path emitted both H_0 and (when maxdim>=1) H_1.
+            // Skip the rest of the generic LINKFIND block.
+        } else {
         auto jp = std::make_unique<JointPairs>(dcg.get(), writepairs, config);
         std::vector<uint32_t> betti;
 		if(dcg->dim==1){
@@ -122,7 +133,8 @@ py::array_t<double> computePH(
 					betti.push_back(writepairs.size() - betti[0] - betti[1] - betti[2]);
 				}
 			}
-		}
+        }
+        } // end of generic LINKFIND fallback (used when 2-D fast path is not applicable)
 	}
 
 	// result

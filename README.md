@@ -518,6 +518,7 @@ The following notes are based on limited understanding and tests and may be inco
 - **v0.0.23**: Added torch integration
 - **v0.0.22**: Changed birth coordinates for T-construction to better match GUDHI for permanent cycles
 - **v0.0.19**: Added support for 4D cubical complexes
+- **v0.0.15**: Added support for Fortran-indexed numpy arrays (F_CONTIGUOUS arrays): Up to v0.0.14, C_CONTIGUOUS was assumed, which caused incorrect results for Fortran-indexed arrays.
 - **v0.0.8**: Fixed memory leak in Python bindings (pointed out by Nicholas Byrne)
 - **v0.0.7**: Speed improvements
 - **v0.0.6**: Changed [birth/death location definition](#creator-and-destroyer-cells)

@@ -3,7 +3,7 @@ Utilities for CubicalRipser's pybind modules under `cripser.utils`.
 
 This submodule provides helpers to:
 - Compute persistent homology via `cripser` or `tcripser`.
-- Convert the returned array (n, 9) into GUDHI-compatible representations.
+- Convert the returned array (n, 9) (or (n,11) for 4D) into GUDHI-compatible representations.
 
 Columns of `computePH` output:
     [dim, birth, death, b_x, b_y, b_z, d_x, d_y, d_z]
@@ -127,7 +127,7 @@ def to_gudhi_diagrams(
     """Convert CubicalRipser output to GUDHI diagrams (list of arrays).
 
     Parameters
-    - ph: array of shape (n, 9) from `computePH`.
+    - ph: array of shape (n, 9) (or (n,11) for 4D) from `computePH`.
     - maxdim: if given, include dimensions [0..maxdim]; otherwise infer from data.
     - include_empty: if True, include empty arrays for missing dimensions.
 
