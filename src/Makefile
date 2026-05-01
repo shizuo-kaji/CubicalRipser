@@ -33,7 +33,7 @@ LDFLAGS     = $(ARCHFLAGS)
 TARGET1     = cubicalripser
 TARGET2     = tcubicalripser
 
-SRCS_COMMON = coboundary_enumerator.cpp joint_pairs.cpp compute_pairs.cpp
+SRCS_COMMON = coboundary_enumerator.cpp joint_pairs.cpp compute_pairs.cpp ph_2d.cpp
 SRCS1       = cubicalripser.cpp dense_cubical_grids.cpp $(SRCS_COMMON)
 SRCS2       = cubicalripser.cpp dense_cubical_grids_T.cpp $(SRCS_COMMON)
 

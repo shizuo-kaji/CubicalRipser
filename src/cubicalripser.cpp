@@ -32,6 +32,7 @@ with this program. If not, see <http://www.gnu.org/licenses/>.
 #include "compute_pairs.h"
 #include "config.h"
 #include "npy.hpp"
+#include "ph_2d.h"
 
 namespace {
 
@@ -335,6 +336,24 @@ int main(int argc, char** argv) {
         switch (config.method) {
             case LINKFIND: {
                 Timer timer;
+                if (dcg.dim <= 2 && dcg.az == 1 && dcg.aw == 1 &&
+                    compute_PH_2d(&dcg, writepairs, config)) {
+                    uint64_t count_dim0 = 0;
+                    uint64_t count_dim1 = 0;
+                    for (const auto& pair : writepairs) {
+                        if (pair.dim == 0) ++count_dim0;
+                        else if (pair.dim == 1) ++count_dim1;
+                    }
+                    betti.push_back(count_dim0);
+                    std::cout << "Number of pairs in dim 0: " << count_dim0 << std::endl;
+                    if (config.maxdim > 0) {
+                        betti.push_back(count_dim1);
+                        std::cout << "Number of pairs in dim 1: " << count_dim1 << std::endl;
+                    }
+                    const auto total_msec = timer.milliseconds();
+                    std::cout << "Total computation took " << total_msec << " [msec]" << std::endl;
+                    break;
+                }
                 JointPairs jp(&dcg, writepairs, config);
                 // Enumerate edges based on dimension
                 if (dcg.dim == 1) {

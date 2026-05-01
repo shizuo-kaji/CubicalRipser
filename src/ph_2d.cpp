@@ -20,6 +20,7 @@
 #include <cstring>
 #include <limits>
 #include <numeric>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -127,26 +128,24 @@ void radix_sort_by_t(std::vector<SortKey>& keys) {
 bool compute_PH_2d(DenseCubicalGrids* dcg,
                    std::vector<WritePairs>& writepairs,
                    const Config& config) {
-    if (dcg->dim >= 4) return false;
+    if (dcg->dim == 0 || dcg->dim >= 3) return false;
     if (dcg->az != 1 || dcg->aw != 1) return false;
     if (config.method != LINKFIND) return false;
 
+    const bool one_dim = (dcg->dim == 1);
     const bool tcon = config.tconstruction;
     const double threshold = dcg->threshold;
     const bool print = config.print;
 
-    // Image dimensions (pixels).
     const uint32_t IH = tcon ? (dcg->ax - 1u) : dcg->ax;
-    const uint32_t IW = tcon ? (dcg->ay - 1u) : dcg->ay;
+    const uint32_t IW = one_dim ? 1u : (tcon ? (dcg->ay - 1u) : dcg->ay);
     if (IH == 0 || IW == 0) return false;
 
-    // Vertex grid extent and square grid extent.
     const uint32_t VH = tcon ? (IH + 1u) : IH;
-    const uint32_t VW = tcon ? (IW + 1u) : IW;
-    const uint32_t SH = tcon ? IH : (IH > 0 ? IH - 1u : 0u);
-    const uint32_t SW = tcon ? IW : (IW > 0 ? IW - 1u : 0u);
+    const uint32_t VW = one_dim ? 1u : (tcon ? (IW + 1u) : IW);
+    const uint32_t SH = one_dim ? 0u : (tcon ? IH : (IH > 0 ? IH - 1u : 0u));
+    const uint32_t SW = one_dim ? 0u : (tcon ? IW : (IW > 0 ? IW - 1u : 0u));
 
-    // Snapshot pixels into a flat row-major array (IH x IW), x fastest.
     std::vector<double> pix(static_cast<size_t>(IH) * IW);
     {
         const auto& dense = *dcg->dense;
@@ -169,10 +168,20 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
                                      static_cast<size_t>(VH) * y);
     };
 
-    // Vertex births.
     const size_t nvert = static_cast<size_t>(VH) * VW;
     std::vector<double> v_birth(nvert);
-    if (tcon) {
+    if (one_dim) {
+        for (uint32_t vx = 0; vx < VH; ++vx) {
+            double m = threshold;
+            if (tcon) {
+                if (vx > 0) m = std::min(m, pix_at(vx - 1, 0));
+                if (vx < IH) m = std::min(m, pix_at(vx, 0));
+            } else {
+                m = pix_at(vx, 0);
+            }
+            v_birth[vx_lin(vx, 0)] = m;
+        }
+    } else if (tcon) {
         for (uint32_t vy = 0; vy < VW; ++vy) {
             for (uint32_t vx = 0; vx < VH; ++vx) {
                 double m = threshold;
@@ -191,18 +200,17 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
         }
     }
 
-    // Square births and (V-construction only) max-corner pixel coords.
     const size_t nsq = static_cast<size_t>(SH) * SW;
     std::vector<double> sq_birth(nsq);
     std::vector<uint32_t> sq_maxx;
     std::vector<uint32_t> sq_maxy;
-    if (tcon) {
+    if (!one_dim && tcon) {
         for (uint32_t sy = 0; sy < SW; ++sy) {
             for (uint32_t sx = 0; sx < SH; ++sx) {
                 sq_birth[sq_lin(sx, sy)] = pix_at(sx, sy);
             }
         }
-    } else {
+    } else if (!one_dim) {
         sq_maxx.assign(nsq, 0u);
         sq_maxy.assign(nsq, 0u);
         for (uint32_t sy = 0; sy < SW; ++sy) {
@@ -211,7 +219,9 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
                 const double p10 = pix_at(sx + 1, sy);
                 const double p11 = pix_at(sx + 1, sy + 1);
                 const double p01 = pix_at(sx, sy + 1);
-                double mv = p00; uint32_t mx = sx, my = sy;
+                double mv = p00;
+                uint32_t mx = sx;
+                uint32_t my = sy;
                 if (p10 > mv) { mv = p10; mx = sx + 1; my = sy; }
                 if (p11 > mv) { mv = p11; mx = sx + 1; my = sy + 1; }
                 if (p01 > mv) { mv = p01; mx = sx; my = sy + 1; }
@@ -223,28 +233,28 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
         }
     }
 
-    // ---- Edge enumeration ----
-    // For each edge we also stash the 1-D coordinate of its position; this
-    // is needed at emit time to reconstruct the "creator pixel" coords
-    // ex_coord_packed = (ex << 16) | ey  -- valid because both fit in 16 bits
-    // for any image we care about (image side <= 65535).
-    const uint32_t EX_RANGE_X = SH;
-    const uint32_t EX_RANGE_Y = tcon ? VW : IW;
-    const uint32_t EY_RANGE_X = tcon ? VH : IH;
-    const uint32_t EY_RANGE_Y = SW;
+    const uint32_t EX_RANGE_X = one_dim ? (tcon ? IH : (IH > 0 ? IH - 1u : 0u)) : SH;
+    const uint32_t EX_RANGE_Y = one_dim ? 1u : (tcon ? VW : IW);
+    const uint32_t EY_RANGE_X = one_dim ? 0u : (tcon ? VH : IH);
+    const uint32_t EY_RANGE_Y = one_dim ? 0u : SW;
 
-    const size_t cap = static_cast<size_t>(EX_RANGE_X) * EX_RANGE_Y +
-                       static_cast<size_t>(EY_RANGE_X) * EY_RANGE_Y;
+    const size_t cap = one_dim
+        ? static_cast<size_t>(EX_RANGE_X)
+        : static_cast<size_t>(EX_RANGE_X) * EX_RANGE_Y +
+              static_cast<size_t>(EY_RANGE_X) * EY_RANGE_Y;
     std::vector<EdgeRec> edges;
     edges.reserve(cap);
-    // Parallel array of packed (type, ex, ey) coords for emit-time use.
-    // Type bit is in the high bit of `coord`: 0 = x-edge, 1 = y-edge.
-    // Lower 30 bits hold (ex << 15) | ey; both ex and ey fit comfortably
-    // in 15 bits for any 2-D image one would want to process here.
     std::vector<uint32_t> ecoord;
     ecoord.reserve(cap);
 
     auto add_xedge = [&](uint32_t ex, uint32_t ey) {
+        if (one_dim) {
+            const double t = tcon ? pix_at(ex, 0) : std::max(pix_at(ex, 0), pix_at(ex + 1, 0));
+            if (t >= threshold) return;
+            edges.push_back({t, vx_lin(ex, 0), vx_lin(ex + 1, 0), INVALID_ID, INVALID_ID});
+            ecoord.push_back((0u << 30) | (ex << 15));
+            return;
+        }
         const bool has_above = (ey >= 1);
         const bool has_below = (ey < SW);
         if (!has_above && !has_below) return;
@@ -267,9 +277,7 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
             t = std::max(e0, e1);
         }
         if (t >= threshold) return;
-        const uint32_t v1 = vx_lin(ex, ey);
-        const uint32_t v2 = vx_lin(ex + 1, ey);
-        edges.push_back({t, v1, v2, s_a, s_b});
+        edges.push_back({t, vx_lin(ex, ey), vx_lin(ex + 1, ey), s_a, s_b});
         ecoord.push_back((0u << 30) | (ex << 15) | ey);
     };
 
@@ -296,27 +304,38 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
             t = std::max(e0, e1);
         }
         if (t >= threshold) return;
-        const uint32_t v1 = vx_lin(ex, ey);
-        const uint32_t v2 = vx_lin(ex, ey + 1);
-        edges.push_back({t, v1, v2, s_l, s_r});
+        edges.push_back({t, vx_lin(ex, ey), vx_lin(ex, ey + 1), s_l, s_r});
         ecoord.push_back((1u << 30) | (ex << 15) | ey);
     };
 
-    for (uint32_t ey = 0; ey < EX_RANGE_Y; ++ey)
-        for (uint32_t ex = 0; ex < EX_RANGE_X; ++ex)
+    for (uint32_t ey = 0; ey < EX_RANGE_Y; ++ey) {
+        for (uint32_t ex = 0; ex < EX_RANGE_X; ++ex) {
             add_xedge(ex, ey);
-    for (uint32_t ey = 0; ey < EY_RANGE_Y; ++ey)
-        for (uint32_t ex = 0; ex < EY_RANGE_X; ++ex)
+        }
+    }
+    for (uint32_t ey = 0; ey < EY_RANGE_Y; ++ey) {
+        for (uint32_t ex = 0; ex < EY_RANGE_X; ++ex) {
             add_yedge(ex, ey);
+        }
+    }
 
-    // Recover creator-pixel coords for an edge (matches ParentVoxel order).
     auto creator_pixel = [&](uint32_t i, uint32_t& cx, uint32_t& cy) {
         const uint32_t pk = ecoord[i];
         const uint32_t etype = pk >> 30;
         const uint32_t ex = (pk >> 15) & 0x7fffu;
         const uint32_t ey = pk & 0x7fffu;
+        if (one_dim) {
+            if (tcon) {
+                cx = ex;
+                cy = 0;
+            } else {
+                const double e0 = pix_at(ex, 0);
+                const double e1 = pix_at(ex + 1, 0);
+                if (e0 >= e1) { cx = ex; cy = 0; } else { cx = ex + 1; cy = 0; }
+            }
+            return;
+        }
         if (etype == 0) {
-            // x-edge
             if (tcon) {
                 const bool has_above = (ey >= 1);
                 const bool has_below = (ey < SW);
@@ -335,9 +354,8 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
                 if (e0 >= e1) { cx = ex; cy = ey; } else { cx = ex + 1; cy = ey; }
             }
         } else {
-            // y-edge
             if (tcon) {
-                const bool has_left  = (ex >= 1);
+                const bool has_left = (ex >= 1);
                 const bool has_right = (ex < SH);
                 if (has_left && has_right) {
                     const double pr = pix_at(ex, ey);
@@ -356,9 +374,6 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
         }
     };
 
-    // ---- Sort once: ascending by birth (radix sort on a 16-byte key) ----
-    // After sorting we permute `edges` and `ecoord` into the sorted order so
-    // the H_0 / H_1 sweeps enjoy sequential memory access.
     std::vector<SortKey> keys(edges.size());
     for (size_t i = 0; i < edges.size(); ++i) {
         keys[i].t = edges[i].t;
@@ -366,78 +381,86 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
     }
     radix_sort_by_t(keys);
     {
-        std::vector<EdgeRec> e2(edges.size());
-        std::vector<uint32_t> c2(edges.size());
+        std::vector<EdgeRec> sorted_edges(edges.size());
+        std::vector<uint32_t> sorted_coords(edges.size());
         for (size_t i = 0; i < edges.size(); ++i) {
-            e2[i] = edges[keys[i].idx];
-            c2[i] = ecoord[keys[i].idx];
+            sorted_edges[i] = edges[keys[i].idx];
+            sorted_coords[i] = ecoord[keys[i].idx];
         }
-        edges.swap(e2);
-        ecoord.swap(c2);
-    }
-
-    // ============================================================
-    // H_0 via union-find on vertices (Kruskal merge-tree).
-    // ============================================================
-    std::vector<uint32_t> v_parent(nvert);
-    std::iota(v_parent.begin(), v_parent.end(), 0u);
-    std::vector<double>   v_root_birth(nvert);
-    std::vector<uint32_t> v_root_v(nvert);
-    for (size_t i = 0; i < nvert; ++i) {
-        v_root_birth[i] = v_birth[i];
-        v_root_v[i] = static_cast<uint32_t>(i);
+        edges.swap(sorted_edges);
+        ecoord.swap(sorted_coords);
     }
 
     auto vertex_parent_pixel = [&](uint32_t vx, uint32_t vy, double b,
                                    uint32_t& bx, uint32_t& by) {
-        if (!tcon) {
-            bx = vx; by = vy;
+        if (one_dim) {
+            if (!tcon) {
+                bx = vx;
+                by = 0;
+                return;
+            }
+            if (vx < IH && pix_at(vx, 0) == b) { bx = vx; by = 0; return; }
+            if (vx > 0 && pix_at(vx - 1, 0) == b) { bx = vx - 1; by = 0; return; }
+            bx = (vx == 0) ? 0u : vx - 1u;
+            by = 0;
             return;
         }
-        // T: ParentVoxel priority order (in-image only).
+        if (!tcon) {
+            bx = vx;
+            by = vy;
+            return;
+        }
         if (vx < IH && vy < IW && pix_at(vx, vy) == b) { bx = vx; by = vy; return; }
         if (vx > 0 && vy < IW && pix_at(vx - 1, vy) == b) { bx = vx - 1; by = vy; return; }
         if (vx > 0 && vy > 0 && pix_at(vx - 1, vy - 1) == b) { bx = vx - 1; by = vy - 1; return; }
         if (vx < IH && vy > 0 && pix_at(vx, vy - 1) == b) { bx = vx; by = vy - 1; return; }
-        bx = (vx == 0) ? 0u : vx - 1;
-        by = (vy == 0) ? 0u : vy - 1;
+        bx = (vx == 0) ? 0u : vx - 1u;
+        by = (vy == 0) ? 0u : vy - 1u;
     };
 
-    for (size_t i = 0; i < edges.size(); ++i) {
-        const EdgeRec& e = edges[i];
-        uint32_t r1 = uf_find(v_parent, e.v1);
-        uint32_t r2 = uf_find(v_parent, e.v2);
-        if (r1 == r2) continue;
-        uint32_t younger, older;
-        if (v_root_birth[r1] > v_root_birth[r2]) { younger = r1; older = r2; }
-        else if (v_root_birth[r1] < v_root_birth[r2]) { younger = r2; older = r1; }
-        else { younger = (r1 > r2) ? r1 : r2; older = (younger == r1) ? r2 : r1; }
-        const double b = v_root_birth[younger];
-        const double d = e.t;
-        if (b != d) {
-            const uint32_t v_id = v_root_v[younger];
-            const uint32_t vx = v_id % VH;
-            const uint32_t vy = v_id / VH;
-            uint32_t bx, by, dx, dy;
-            vertex_parent_pixel(vx, vy, b, bx, by);
-            creator_pixel(static_cast<uint32_t>(i), dx, dy);
-            writepairs.emplace_back(/*dim*/ 0, b, d,
-                                    bx, by, 0u, 0u,
-                                    dx, dy, 0u, 0u, print);
+    auto compute_h0_pairs = [&]() {
+        std::vector<WritePairs> pairs;
+        std::vector<uint32_t> v_parent(nvert);
+        std::iota(v_parent.begin(), v_parent.end(), 0u);
+        std::vector<double> v_root_birth(nvert);
+        std::vector<uint32_t> v_root_v(nvert);
+        for (size_t i = 0; i < nvert; ++i) {
+            v_root_birth[i] = v_birth[i];
+            v_root_v[i] = static_cast<uint32_t>(i);
         }
-        v_parent[younger] = older;
-    }
 
-    // Essential class
-    {
+        for (size_t i = 0; i < edges.size(); ++i) {
+            const EdgeRec& e = edges[i];
+            uint32_t r1 = uf_find(v_parent, e.v1);
+            uint32_t r2 = uf_find(v_parent, e.v2);
+            if (r1 == r2) continue;
+            uint32_t younger;
+            uint32_t older;
+            if (v_root_birth[r1] > v_root_birth[r2]) { younger = r1; older = r2; }
+            else if (v_root_birth[r1] < v_root_birth[r2]) { younger = r2; older = r1; }
+            else { younger = (r1 > r2) ? r1 : r2; older = (younger == r1) ? r2 : r1; }
+            const double b = v_root_birth[younger];
+            const double d = e.t;
+            if (b != d) {
+                const uint32_t v_id = v_root_v[younger];
+                const uint32_t vx = v_id % VH;
+                const uint32_t vy = v_id / VH;
+                uint32_t bx, by, dx, dy;
+                vertex_parent_pixel(vx, vy, b, bx, by);
+                creator_pixel(static_cast<uint32_t>(i), dx, dy);
+                pairs.emplace_back(0, b, d,
+                                   bx, by, 0u, 0u,
+                                   dx, dy, 0u, 0u, print);
+            }
+            v_parent[younger] = older;
+        }
+
         double min_b = std::numeric_limits<double>::infinity();
         uint32_t min_v = 0;
         for (size_t i = 0; i < nvert; ++i) {
-            if (v_parent[i] == static_cast<uint32_t>(i)) {
-                if (v_root_birth[i] < min_b) {
-                    min_b = v_root_birth[i];
-                    min_v = v_root_v[i];
-                }
+            if (v_parent[i] == static_cast<uint32_t>(i) && v_root_birth[i] < min_b) {
+                min_b = v_root_birth[i];
+                min_v = v_root_v[i];
             }
         }
         if (min_b < threshold) {
@@ -445,60 +468,74 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
             const uint32_t vy = min_v / VH;
             uint32_t bx, by;
             vertex_parent_pixel(vx, vy, min_b, bx, by);
-            writepairs.emplace_back(/*dim*/ 0, min_b, threshold,
-                                    bx, by, 0u, 0u,
-                                    0u, 0u, 0u, 0u, print);
+            pairs.emplace_back(0, min_b, threshold,
+                               bx, by, 0u, 0u,
+                               0u, 0u, 0u, 0u, print);
         }
+        return pairs;
+    };
+
+    if (one_dim || config.maxdim < 1) {
+        auto h0_pairs = compute_h0_pairs();
+        writepairs.insert(writepairs.end(), h0_pairs.begin(), h0_pairs.end());
+        return true;
     }
 
-    if (config.maxdim < 1) return true;
-
-    // ============================================================
-    // H_1 via dual union-find on squares + outside.
-    // ============================================================
-    const uint32_t outside_id = static_cast<uint32_t>(nsq);
-    std::vector<uint32_t> s_parent(nsq + 1);
-    std::vector<double>   s_max_pix(nsq + 1);
-    std::vector<uint32_t> s_max_x(nsq + 1, 0u);
-    std::vector<uint32_t> s_max_y(nsq + 1, 0u);
-    std::iota(s_parent.begin(), s_parent.end(), 0u);
-    for (size_t i = 0; i < nsq; ++i) {
-        s_max_pix[i] = sq_birth[i];
-        if (tcon) {
-            s_max_x[i] = static_cast<uint32_t>(i % SH);
-            s_max_y[i] = static_cast<uint32_t>(i / SH);
-        } else {
-            s_max_x[i] = sq_maxx[i];
-            s_max_y[i] = sq_maxy[i];
+    auto compute_h1_pairs = [&]() {
+        std::vector<WritePairs> pairs;
+        const uint32_t outside_id = static_cast<uint32_t>(nsq);
+        std::vector<uint32_t> s_parent(nsq + 1);
+        std::vector<double> s_max_pix(nsq + 1);
+        std::vector<uint32_t> s_max_x(nsq + 1, 0u);
+        std::vector<uint32_t> s_max_y(nsq + 1, 0u);
+        std::iota(s_parent.begin(), s_parent.end(), 0u);
+        for (size_t i = 0; i < nsq; ++i) {
+            s_max_pix[i] = sq_birth[i];
+            if (tcon) {
+                s_max_x[i] = static_cast<uint32_t>(i % SH);
+                s_max_y[i] = static_cast<uint32_t>(i / SH);
+            } else {
+                s_max_x[i] = sq_maxx[i];
+                s_max_y[i] = sq_maxy[i];
+            }
         }
-    }
-    s_max_pix[outside_id] = std::numeric_limits<double>::infinity();
+        s_max_pix[outside_id] = std::numeric_limits<double>::infinity();
 
-    // Iterate edges in REVERSE (descending birth) -- they are now stored
-    // in ascending-birth order from the H_0 sweep above.
-    for (size_t i = edges.size(); i-- > 0; ) {
-        const EdgeRec& e = edges[i];
-        const uint32_t a = (e.s1 == INVALID_ID) ? outside_id : e.s1;
-        const uint32_t b = (e.s2 == INVALID_ID) ? outside_id : e.s2;
-        uint32_t r1 = uf_find(s_parent, a);
-        uint32_t r2 = uf_find(s_parent, b);
-        if (r1 == r2) continue;
-        uint32_t younger, older;
-        if (s_max_pix[r1] < s_max_pix[r2]) { younger = r1; older = r2; }
-        else if (s_max_pix[r1] > s_max_pix[r2]) { younger = r2; older = r1; }
-        else { younger = (r1 < r2) ? r1 : r2; older = (younger == r1) ? r2 : r1; }
-        const double bp = e.t;
-        const double dp = s_max_pix[younger];
-        if (bp != dp) {
-            uint32_t cx, cy;
-            creator_pixel(static_cast<uint32_t>(i), cx, cy);
-            writepairs.emplace_back(/*dim*/ 1, bp, dp,
-                                    cx, cy, 0u, 0u,
-                                    s_max_x[younger], s_max_y[younger], 0u, 0u,
-                                    print);
+        for (size_t i = edges.size(); i-- > 0;) {
+            const EdgeRec& e = edges[i];
+            const uint32_t a = (e.s1 == INVALID_ID) ? outside_id : e.s1;
+            const uint32_t b = (e.s2 == INVALID_ID) ? outside_id : e.s2;
+            uint32_t r1 = uf_find(s_parent, a);
+            uint32_t r2 = uf_find(s_parent, b);
+            if (r1 == r2) continue;
+            uint32_t younger;
+            uint32_t older;
+            if (s_max_pix[r1] < s_max_pix[r2]) { younger = r1; older = r2; }
+            else if (s_max_pix[r1] > s_max_pix[r2]) { younger = r2; older = r1; }
+            else { younger = (r1 < r2) ? r1 : r2; older = (younger == r1) ? r2 : r1; }
+            const double bp = e.t;
+            const double dp = s_max_pix[younger];
+            if (bp != dp) {
+                uint32_t cx, cy;
+                creator_pixel(static_cast<uint32_t>(i), cx, cy);
+                pairs.emplace_back(1, bp, dp,
+                                   cx, cy, 0u, 0u,
+                                   s_max_x[younger], s_max_y[younger], 0u, 0u,
+                                   print);
+            }
+            s_parent[younger] = older;
         }
-        s_parent[younger] = older;
-    }
+        return pairs;
+    };
 
+    std::vector<WritePairs> h0_pairs;
+    std::vector<WritePairs> h1_pairs;
+    std::thread h0_thread([&]() { h0_pairs = compute_h0_pairs(); });
+    std::thread h1_thread([&]() { h1_pairs = compute_h1_pairs(); });
+    h0_thread.join();
+    h1_thread.join();
+
+    writepairs.insert(writepairs.end(), h0_pairs.begin(), h0_pairs.end());
+    writepairs.insert(writepairs.end(), h1_pairs.begin(), h1_pairs.end());
     return true;
 }

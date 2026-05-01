@@ -98,7 +98,7 @@ py::array_t<double> computePH(
         // 2-D fast path: avoids the generic LINKFIND + ComputePairs machinery
         // entirely (dual union-find Alexander-duality algorithm).
         bool fastpath_handled = false;
-        if (dcg->dim == 2 && dcg->az == 1 && dcg->aw == 1) {
+        if (dcg->dim <= 2 && dcg->az == 1 && dcg->aw == 1) {
             fastpath_handled = compute_PH_2d(dcg.get(), writepairs, config);
         }
         if (fastpath_handled) {
