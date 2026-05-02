@@ -71,7 +71,7 @@ def compute_ph(
     """Compute persistent homology using `cripser` or `tcripser`.
 
     Parameters
-    - arr: numpy array (1D/2D/3D/4D) of dtype float64
+    - arr: numeric numpy array (1D/2D/3D/4D); non-float64 input is converted as needed
     - maxdim, top_dim, embedded, location: forwarded to the pybind function
     - inf_cutoff: value to use as cutoff for detecting DBL_MAX (default is _INF_CUTOFF)
 
@@ -79,8 +79,11 @@ def compute_ph(
     - np.ndarray of shape (n, 9) (or (n,11) in 4D case): columns are
       [dim, birth, death, b_x, b_y, b_z, d_x, d_y, d_z]
     """
-    if arr.dtype != np.float64:
-        arr = arr.astype(np.float64, copy=False)
+    arr = np.asarray(arr)
+    if arr.ndim < 1 or arr.ndim > 4:
+        raise ValueError("Expected a 1D-4D array")
+    if not np.issubdtype(arr.dtype, np.number):
+        raise TypeError("Expected a numeric numpy array")
     #mod = importlib.import_module(module)
     if filtration.upper() == "T":
         kwargs = dict(

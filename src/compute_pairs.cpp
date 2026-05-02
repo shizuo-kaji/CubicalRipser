@@ -31,7 +31,125 @@ using namespace std;
 #include "compute_pairs.h"
 #include "cube.h"
 #include "dense_cubical_grids.h"
+#include "radix_sort.h"
 #include "write_pairs.h"
+
+namespace {
+
+uint8_t mask_count_for_cell_dim(const DenseCubicalGrids *dcg, uint8_t cell_dim) {
+  if (dcg->dim == 4) {
+    switch (cell_dim) {
+    case 0:
+    case 4:
+      return 1;
+    case 1:
+    case 3:
+      return 4;
+    case 2:
+      return 6;
+    default:
+      return 0;
+    }
+  }
+
+  if (dcg->config->tconstruction && dcg->az == 1 && dcg->dim < 4) {
+    switch (cell_dim) {
+    case 0:
+    case 2:
+      return 1;
+    case 1:
+      return 2;
+    default:
+      return 0;
+    }
+  }
+
+  switch (cell_dim) {
+  case 0:
+  case 3:
+    return 1;
+  case 1:
+  case 2:
+    return 3;
+  default:
+    return 0;
+  }
+}
+
+void sort_working_column(CachedColumn &column) {
+  if (column.size() > 1) {
+    std::sort(column.begin(), column.end(), CubeComparator());
+  }
+}
+
+void normalize_column(CachedColumn &column) {
+  sort_working_column(column);
+  if (column.size() < 2) {
+    return;
+  }
+
+  size_t write = 0;
+  for (size_t read = 0; read < column.size();) {
+    size_t next = read + 1;
+    while (next < column.size() && column[next].index == column[read].index) {
+      ++next;
+    }
+    if (((next - read) & 1U) != 0U) {
+      column[write++] = column[read];
+    }
+    read = next;
+  }
+  column.resize(write);
+}
+
+void xor_sorted_columns(CachedColumn &column, const CachedColumn &addon,
+                        CachedColumn &scratch) {
+  scratch.clear();
+  scratch.reserve(column.size() + addon.size());
+
+  CubeComparator less;
+  size_t i = 0;
+  size_t j = 0;
+  while (i < column.size() && j < addon.size()) {
+    if (column[i].index == addon[j].index) {
+      ++i;
+      ++j;
+    } else if (less(column[i], addon[j])) {
+      scratch.push_back(column[i++]);
+    } else {
+      scratch.push_back(addon[j++]);
+    }
+  }
+
+  while (i < column.size()) {
+    scratch.push_back(column[i++]);
+  }
+  while (j < addon.size()) {
+    scratch.push_back(addon[j++]);
+  }
+
+  column.swap(scratch);
+}
+
+} // namespace
+
+void DensePivotTable::reset(DenseCubicalGrids *dcg, uint8_t target_dim) {
+  ax = dcg->ax;
+  ay = dcg->ay;
+  az = dcg->az;
+  aw = dcg->aw;
+  cell_dim = target_dim;
+  mask_count = mask_count_for_cell_dim(dcg, target_dim);
+  if (mask_count == 0) {
+    deactivate();
+    return;
+  }
+  const size_t total_slots =
+      static_cast<size_t>(ax) * static_cast<size_t>(ay) *
+      static_cast<size_t>(az) * static_cast<size_t>(aw) *
+      static_cast<size_t>(mask_count);
+  slots.assign(total_slots, empty_value());
+}
 
 ComputePairs::ComputePairs(DenseCubicalGrids *_dcg,
                            std::vector<WritePairs> &_wp, Config &_config)
@@ -46,22 +164,127 @@ void ComputePairs::compute_pairs_main(vector<Cube> &ctr) {
     cout << "# columns to reduce: " << ctl_size << endl;
   }
 
-  size_t pivot_capacity = ctl_size >= 1024 ? ctl_size * 2 : 2048;
-  pivot_column_index = std::make_unique<ConcurrentHashMap>(pivot_capacity);
+  if (!pivot_column_index) {
+    pivot_column_index = std::make_unique<DensePivotTable>();
+  }
+  pivot_column_index->reset(dcg, dim + 1);
 
-  int num_threads = 1;
+  const bool use_heap_working_column =
+      (dcg->dim == 4 && dim == 1);
+  if (use_heap_working_column) {
+    std::vector<WritePairs> local_wp;
+    int num_apparent_pairs = 0;
+
+    CachedColumn batch_column;
+    batch_column.reserve((dcg->dim == 4) ? 8u : 6u);
+    CoboundaryEnumerator cofaces(dcg, dim);
+    unordered_map<uint32_t, CachedColumn> recorded_wc;
+    queue<uint32_t> cached_column_idx;
+    recorded_wc.max_load_factor(0.7f);
+    recorded_wc.reserve(std::min<size_t>(ctl_size, config->cache_size) + 10);
+    CubeQue working_coboundary;
+    working_coboundary.reserve(64);
+
+    for (uint32_t i = 0; i < ctl_size; ++i) {
+      working_coboundary.clear();
+      double birth = ctr[i].birth;
+      auto j = i;
+      Cube pivot;
+      bool might_be_apparent_pair = true;
+      bool found_apparent_pair = false;
+      int num_recurse = 0;
+
+      for (int k = 0; k < config->maxiter; ++k) {
+        bool cache_hit = false;
+        if (i != j) {
+          auto findWc = recorded_wc.find(j);
+          if (findWc != recorded_wc.end()) {
+            cache_hit = true;
+            for (const auto &c : findWc->second) {
+              working_coboundary.push(c);
+            }
+          }
+        }
+        if (!cache_hit) {
+          batch_column.clear();
+          cofaces.setCoboundaryEnumerator(ctr[j]);
+          const double column_birth = ctr[j].birth;
+          while (cofaces.hasNextCoface()) {
+            batch_column.push_back(cofaces.nextCoface);
+            if (might_be_apparent_pair &&
+                (column_birth == cofaces.nextCoface.birth)) {
+              auto apparent =
+                  pivot_column_index->insert(cofaces.nextCoface.index, i);
+              if (apparent.second) {
+                found_apparent_pair = true;
+                ++num_apparent_pairs;
+                break;
+              }
+              might_be_apparent_pair = false;
+            }
+          }
+          if (found_apparent_pair) {
+            break;
+          }
+          for (const auto &e : batch_column) {
+            working_coboundary.push(e);
+          }
+        }
+        pivot = get_pivot(working_coboundary);
+        if (pivot.index != NONE) {
+          auto insert_result = pivot_column_index->insert(pivot.index, i);
+          if (!insert_result.second) {
+            j = insert_result.first;
+            num_recurse++;
+            continue;
+          }
+
+          if (num_recurse >= config->min_recursion_to_cache) {
+            add_cache(i, working_coboundary, recorded_wc);
+            cached_column_idx.push(i);
+            if (cached_column_idx.size() > config->cache_size) {
+              recorded_wc.erase(cached_column_idx.front());
+              cached_column_idx.pop();
+            }
+          }
+          double death = pivot.birth;
+          if (birth != death) {
+            local_wp.emplace_back(
+                WritePairs(dim, ctr[i], pivot, dcg, config->print));
+          }
+          break;
+        }
+
+        if (birth != dcg->threshold) {
+          local_wp.emplace_back(
+              WritePairs(dim, birth, dcg->threshold, ctr[i].x(), ctr[i].y(),
+                         ctr[i].z(), ctr[i].w(), 0, 0, 0, 0, config->print));
+        }
+        break;
+      }
+    }
+
+    wp->insert(wp->end(), local_wp.begin(), local_wp.end());
+    if (config->verbose) {
+      cout << "# apparent pairs: " << num_apparent_pairs << endl;
+    }
+    return;
+  }
+
   std::vector<WritePairs> local_wp;
-  std::atomic<int> num_apparent_pairs(0);
+  int num_apparent_pairs = 0;
 
-  std::vector<Cube> coface_entries;
-  coface_entries.reserve((dcg->dim == 4) ? 8u : 6u);
+  CachedColumn batch_column;
+  batch_column.reserve((dcg->dim == 4) ? 8u : 6u);
   CoboundaryEnumerator cofaces(dcg, dim);
   unordered_map<uint32_t, CachedColumn> recorded_wc;
   queue<uint32_t> cached_column_idx;
   recorded_wc.max_load_factor(0.7f);
-  recorded_wc.reserve(ctl_size + 10);
-  CubeQue working_coboundary;
+  recorded_wc.reserve(std::min<size_t>(ctl_size, config->cache_size) + 10);
+  CachedColumn working_coboundary;
   working_coboundary.reserve(64);
+  CachedColumn merge_scratch;
+  merge_scratch.reserve(64);
   int local_apparent_pairs = 0;
 
   for (uint32_t i = 0; i < ctl_size; ++i) {
@@ -79,18 +302,16 @@ void ComputePairs::compute_pairs_main(vector<Cube> &ctr) {
         auto findWc = recorded_wc.find(j);
         if (findWc != recorded_wc.end()) {
           cache_hit = true;
-          const auto &wc = findWc->second;
-          for (const auto &c : wc) {
-            working_coboundary.push(c);
-          }
+          xor_sorted_columns(working_coboundary, findWc->second,
+                             merge_scratch);
         }
       }
       if (!cache_hit) {
-        coface_entries.clear();
+        batch_column.clear();
         cofaces.setCoboundaryEnumerator(ctr[j]);
         const double column_birth = ctr[j].birth;
         while (cofaces.hasNextCoface()) {
-          coface_entries.push_back(cofaces.nextCoface);
+          batch_column.push_back(cofaces.nextCoface);
           if (might_be_apparent_pair &&
               (column_birth == cofaces.nextCoface.birth)) {
             auto apparent =
@@ -105,9 +326,8 @@ void ComputePairs::compute_pairs_main(vector<Cube> &ctr) {
         }
         if (found_apparent_pair)
           break;
-        for (const auto &e : coface_entries) {
-          working_coboundary.push(e);
-        }
+        normalize_column(batch_column);
+        xor_sorted_columns(working_coboundary, batch_column, merge_scratch);
       }
       pivot = get_pivot(working_coboundary);
       if (pivot.index != NONE) {
@@ -147,11 +367,17 @@ void ComputePairs::compute_pairs_main(vector<Cube> &ctr) {
   wp->insert(wp->end(), local_wp.begin(), local_wp.end());
 
   if (config->verbose) {
-    cout << "# apparent pairs: " << num_apparent_pairs.load() << endl;
+    cout << "# apparent pairs: " << num_apparent_pairs << endl;
   }
 }
 
 // cache a new reduced column after mod 2
+void ComputePairs::add_cache(
+    uint32_t i, CachedColumn &wc,
+    unordered_map<uint32_t, CachedColumn> &recorded_wc) {
+  recorded_wc.emplace(i, std::move(wc));
+}
+
 void ComputePairs::add_cache(
     uint32_t i, CubeQue &wc,
     unordered_map<uint32_t, CachedColumn> &recorded_wc) {
@@ -170,6 +396,22 @@ void ComputePairs::add_cache(
 }
 
 // get the pivot from a column after mod 2
+Cube ComputePairs::pop_pivot(CachedColumn &column) {
+  if (column.empty()) {
+    return Cube();
+  }
+  const Cube pivot = column.back();
+  column.pop_back();
+  return pivot;
+}
+
+Cube ComputePairs::get_pivot(CachedColumn &column) {
+  if (column.empty()) {
+    return Cube();
+  }
+  return column.back();
+}
+
 Cube ComputePairs::pop_pivot(CubeQue &column) {
   if (column.empty()) {
     return Cube();
@@ -179,9 +421,9 @@ Cube ComputePairs::pop_pivot(CubeQue &column) {
 
     while (!column.empty() && column.top().index == pivot.index) {
       column.pop();
-      if (column.empty())
+      if (column.empty()) {
         return Cube();
-      else {
+      } else {
         pivot = column.top();
         column.pop();
       }
@@ -257,7 +499,7 @@ void ComputePairs::assemble_columns_to_reduce(vector<Cube> &ctr, uint8_t _dim) {
   }
   if (dim == 0) {
     if (pivot_column_index) {
-      pivot_column_index->clear();
+      pivot_column_index->deactivate();
     }
   }
   const size_t max_ctr_size =
@@ -270,6 +512,8 @@ void ComputePairs::assemble_columns_to_reduce(vector<Cube> &ctr, uint8_t _dim) {
       std::min(max_ctr_size, static_cast<size_t>(8000000));
   ctr.reserve(reserve_target);
   const double threshold = dcg->threshold;
+  const bool skip_paired_columns =
+      pivot_column_index && pivot_column_index->active_for(dim);
   for (uint8_t m = 0; m < max_m; ++m) {
     for (uint32_t w = 0; w < dcg->aw; ++w) {
       for (uint32_t z = 0; z < dcg->az; ++z) {
@@ -284,7 +528,8 @@ void ComputePairs::assemble_columns_to_reduce(vector<Cube> &ctr, uint8_t _dim) {
                                      (static_cast<uint64_t>(z) << 30) |
                                      (static_cast<uint64_t>(w) << 45) |
                                      (static_cast<uint64_t>(m) << 60);
-              if (!pivot_column_index || !pivot_column_index->contains(index)) {
+              if (!skip_paired_columns ||
+                  !pivot_column_index->contains(index)) {
                 ctr.emplace_back(birth, index);
               }
             }
@@ -294,7 +539,7 @@ void ComputePairs::assemble_columns_to_reduce(vector<Cube> &ctr, uint8_t _dim) {
     }
   }
   clock_t start = clock();
-  sort(ctr.begin(), ctr.end(), CubeComparator());
+  cubicalripser::radix_sort_cubes(ctr);
   if (config->verbose) {
     clock_t end = clock();
     const double time =

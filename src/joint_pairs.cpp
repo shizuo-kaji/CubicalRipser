@@ -21,6 +21,7 @@ with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "dense_cubical_grids.h"
 #include "coboundary_enumerator.h"
 #include "union_find.h"
+#include "radix_sort.h"
 #include "write_pairs.h"
 #include "joint_pairs.h"
 
@@ -61,7 +62,7 @@ void JointPairs::enum_edges(const vector<uint8_t>& types, vector<Cube>& ctr) {
         }
     }
     // Sort the cubes based on birth values
-    std::sort(ctr.begin(), ctr.end(), CubeComparator());
+    cubicalripser::radix_sort_cubes(ctr);
 }
 
 // Compute H_0 by union-find

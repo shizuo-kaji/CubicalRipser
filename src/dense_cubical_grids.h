@@ -95,6 +95,7 @@ public:
 	uint32_t ax, ay, az, aw;
     uint32_t axy, axyz, ayz, azw, axw, ayw;
 	std::unique_ptr<NDArray<double>> dense;
+    std::vector<double> planar_fastpath_dense;
 
     DenseCubicalGrids(Config&);
     // Overloaded constructor allowing explicit shape initialization
@@ -290,6 +291,7 @@ public:
 		img_y = ay;
 		img_z = az;
 		img_w = aw;
+        planar_fastpath_dense.clear();
 		uint64_t i = 0;
 		uint32_t x_shift = 2; // total size of the boundary (left+right)
 		uint32_t y_shift = 2;
@@ -303,6 +305,38 @@ public:
 			if (az>1) z_shift = 4;
 			if (aw>1) w_shift = 4;
 		}
+        const bool use_planar_fastpath_storage =
+            !embedded &&
+            config->method == LINKFIND &&
+            dim <= 2 &&
+            az == 1 &&
+            aw == 1;
+        if (use_planar_fastpath_storage) {
+            const size_t planar_size =
+                static_cast<size_t>(ax) * static_cast<size_t>(ay);
+            planar_fastpath_dense.resize(planar_size);
+
+            auto arrIndexFortran2D = [&](uint32_t ox, uint32_t oy) -> size_t {
+                return static_cast<size_t>(ox) +
+                       static_cast<size_t>(ax) * static_cast<size_t>(oy);
+            };
+            auto arrIndexC2D = [&](uint32_t ox, uint32_t oy) -> size_t {
+                return static_cast<size_t>(oy) +
+                       static_cast<size_t>(ay) * static_cast<size_t>(ox);
+            };
+
+            for (uint32_t y = 0; y < ay; ++y) {
+                for (uint32_t x = 0; x < ax; ++x) {
+                    const size_t src_idx = fortran_order
+                        ? arrIndexFortran2D(x, y)
+                        : arrIndexC2D(x, y);
+                    planar_fastpath_dense[
+                        static_cast<size_t>(x) + static_cast<size_t>(ax) * y
+                    ] = sgn * arr[src_idx];
+                }
+            }
+            return;
+        }
 		if (dim < 4){
 			// allocate with inner&outer boundary (original ax,ay,az not yet modified below)
 			const uint32_t size_x = ax + x_shift;

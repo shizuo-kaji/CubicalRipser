@@ -33,6 +33,16 @@ namespace {
 
 constexpr uint32_t INVALID_ID = std::numeric_limits<uint32_t>::max();
 
+struct PlanarDenseView {
+    const double* data{nullptr};
+    uint32_t width{0};
+    uint32_t height{0};
+
+    double operator()(uint32_t x, uint32_t y) const {
+        return data[static_cast<size_t>(x) + static_cast<size_t>(width) * y];
+    }
+};
+
 // Path-compression find for a flat parent array.
 inline uint32_t uf_find(std::vector<uint32_t>& parent, uint32_t x) {
     uint32_t r = x;
@@ -70,6 +80,55 @@ inline uint64_t double_to_radix(double d) {
     uint64_t u;
     std::memcpy(&u, &d, sizeof(u));
     return (u & (1ULL << 63)) ? ~u : (u | (1ULL << 63));
+}
+
+inline bool try_uint_bucket(double d, uint32_t max_value, uint32_t& out) {
+    if (!(d >= 0.0) || d > static_cast<double>(max_value)) return false;
+    const uint32_t v = static_cast<uint32_t>(d);
+    if (static_cast<double>(v) != d) return false;
+    out = v;
+    return true;
+}
+
+bool detect_counting_sort_limit(const std::vector<SortKey>& keys, uint32_t& max_value) {
+    uint32_t observed_max = 0u;
+    for (const auto& key : keys) {
+        uint32_t bucket = 0;
+        if (!try_uint_bucket(key.t, 0xffffu, bucket)) return false;
+        observed_max = std::max(observed_max, bucket);
+    }
+    max_value = (observed_max <= 0xffu) ? 0xffu : 0xffffu;
+    return true;
+}
+
+void counting_sort_by_t(std::vector<SortKey>& keys, uint32_t max_value) {
+    const size_t N = keys.size();
+    if (N <= 1) return;
+
+    const size_t bucket_count = static_cast<size_t>(max_value) + 1;
+    std::vector<uint32_t> counts(bucket_count, 0u);
+    for (const auto& key : keys) {
+        uint32_t bucket = 0;
+        const bool ok = try_uint_bucket(key.t, max_value, bucket);
+        (void)ok;
+        counts[bucket]++;
+    }
+
+    uint32_t sum = 0;
+    for (size_t i = 0; i < bucket_count; ++i) {
+        const uint32_t c = counts[i];
+        counts[i] = sum;
+        sum += c;
+    }
+
+    std::vector<SortKey> tmp(N);
+    for (const auto& key : keys) {
+        uint32_t bucket = 0;
+        const bool ok = try_uint_bucket(key.t, max_value, bucket);
+        (void)ok;
+        tmp[counts[bucket]++] = key;
+    }
+    keys.swap(tmp);
 }
 
 // LSD radix sort of `keys` ascending by `.t`. Stable for ties (preserves
@@ -123,6 +182,17 @@ void radix_sort_by_t(std::vector<SortKey>& keys) {
     }
 }
 
+void sort_keys_by_t(std::vector<SortKey>& keys) {
+    if (keys.size() <= 1) return;
+
+    uint32_t counting_limit = 0u;
+    if (detect_counting_sort_limit(keys, counting_limit)) {
+        counting_sort_by_t(keys, counting_limit);
+        return;
+    }
+    radix_sort_by_t(keys);
+}
+
 } // namespace
 
 bool compute_PH_2d(DenseCubicalGrids* dcg,
@@ -146,18 +216,23 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
     const uint32_t SH = one_dim ? 0u : (tcon ? IH : (IH > 0 ? IH - 1u : 0u));
     const uint32_t SW = one_dim ? 0u : (tcon ? IW : (IW > 0 ? IW - 1u : 0u));
 
-    std::vector<double> pix(static_cast<size_t>(IH) * IW);
-    {
+    std::vector<double> pix_storage;
+    PlanarDenseView pix;
+    if (!dcg->planar_fastpath_dense.empty()) {
+        pix = {dcg->planar_fastpath_dense.data(), IH, IW};
+    } else {
+        pix_storage.resize(static_cast<size_t>(IH) * IW);
         const auto& dense = *dcg->dense;
         for (uint32_t y = 0; y < IW; ++y) {
             for (uint32_t x = 0; x < IH; ++x) {
-                pix[static_cast<size_t>(x) + static_cast<size_t>(IH) * y] =
+                pix_storage[static_cast<size_t>(x) + static_cast<size_t>(IH) * y] =
                     dense(x + 1, y + 1, 1);
             }
         }
+        pix = {pix_storage.data(), IH, IW};
     }
     auto pix_at = [&](uint32_t x, uint32_t y) -> double {
-        return pix[static_cast<size_t>(x) + static_cast<size_t>(IH) * y];
+        return pix(x, y);
     };
     auto sq_lin = [&](uint32_t sx, uint32_t sy) -> uint32_t {
         return static_cast<uint32_t>(static_cast<size_t>(sx) +
@@ -379,7 +454,7 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
         keys[i].t = edges[i].t;
         keys[i].idx = static_cast<uint32_t>(i);
     }
-    radix_sort_by_t(keys);
+    sort_keys_by_t(keys);
     {
         std::vector<EdgeRec> sorted_edges(edges.size());
         std::vector<uint32_t> sorted_coords(edges.size());
