@@ -26,10 +26,20 @@ class CMakeExtension(Extension):
     - name: Python import path for the built extension (e.g. "cripser._cripser").
     - target: CMake target name to build (e.g. "_cripser").
     - sourcedir: CMake source directory (default: project root).
+    - py_limited_api: forwarded to setuptools so the extension filename uses the
+      ``.abi3.<ext>`` suffix (matches what nanobind emits when STABLE_ABI is
+      active on Python ≥3.12).
     """
 
-    def __init__(self, name: str, *, target: str, sourcedir: str = "") -> None:
-        super().__init__(name, sources=[])
+    def __init__(
+        self,
+        name: str,
+        *,
+        target: str,
+        sourcedir: str = "",
+        py_limited_api: bool = False,
+    ) -> None:
+        super().__init__(name, sources=[], py_limited_api=py_limited_api)
         self.target = target
         self.sourcedir = os.path.abspath(sourcedir)
 
@@ -138,12 +148,20 @@ class CMakeBuild(build_ext):
 
 
 if __name__ == "__main__":
+    # nanobind's STABLE_ABI macro only enables Limited API on Python ≥3.12.
+    # Mirror that here so wheel tag (cp312-abi3) and .abi3.so suffix only
+    # turn on for builds where the produced binary is actually Limited-API.
+    use_limited_api = sys.version_info >= (3, 12)
+    setup_options: dict = {}
+    if use_limited_api:
+        setup_options["bdist_wheel"] = {"py_limited_api": "cp312"}
+
     setup(
         ext_modules=[
             # Place _cripser inside the "cripser" package
-            CMakeExtension("cripser._cripser", target="_cripser"),
+            CMakeExtension("cripser._cripser", target="_cripser", py_limited_api=use_limited_api),
             # Place tcripser in the same package directory as _cripser
-            CMakeExtension("cripser.tcripser", target="tcripser"),
+            CMakeExtension("cripser.tcripser", target="tcripser", py_limited_api=use_limited_api),
         ],
         cmdclass={"build_ext": CMakeBuild},
         packages=[
@@ -154,4 +172,5 @@ if __name__ == "__main__":
         # Avoid copying arbitrary files (e.g., egg-info) into wheels on Windows
         include_package_data=False,
         zip_safe=False,
+        options=setup_options,
     )

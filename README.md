@@ -89,16 +89,16 @@ pip install --no-binary cripser cripser
 
 ### Building from source
 Requirements:
-- Python >= 3.8
-- CMake >= 3.15
-- C++14+ compiler (GCC, Clang, MSVC; `src/Makefile` defaults to C++20)
+- Python >= 3.9 (Python 3.8 is no longer supported)
+- CMake >= 3.21
+- C++17+ compiler (GCC, Clang, MSVC; `src/Makefile` defaults to C++20)
+- `nanobind` (installed automatically as a build dependency via `pyproject.toml`)
 
-Clone and initialize submodules:
+Clone the repository:
 
 ```bash
 git clone https://github.com/shizuo-kaji/CubicalRipser.git
 cd CubicalRipser
-git submodule update --init --recursive
 ```
 
 Build CLI binaries:
@@ -508,6 +508,7 @@ The following notes are based on limited understanding and tests and may be inco
   - V-construction
 
 ## Release Notes
+- **v0.0.34** (planned): Switched the Python binding layer from pybind11 to [nanobind](https://github.com/wjakob/nanobind) so a single `cp312-abi3` wheel covers Python 3.12+. **Python 3.8 is dropped** (nanobind requires ≥ 3.9).
 - **v0.0.31**: Changed module structure (hopefully, backward compatible)
 - **v0.0.30**: Improved cache resulting in large speedup
 - **v0.0.24**: Repository renamed from `CubicalRipser_3dim` to `CubicalRipser`.

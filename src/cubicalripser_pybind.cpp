@@ -12,12 +12,10 @@ with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "cubicalripser_pybind.h"
 
-#include <pybind11/pybind11.h>
-#include <pybind11/numpy.h>
+#include <nanobind/nanobind.h>
+#include <nanobind/stl/string.h>
 
-using namespace std;
-
-namespace py = pybind11;
+namespace nb = nanobind;
 
 // Allow building two modules from this single source by parameterizing
 // the module name and doc metadata via compile definitions.
@@ -33,7 +31,7 @@ namespace py = pybind11;
 #  define CRIPSER_CURRENTMODULE "cripser"
 #endif
 
-PYBIND11_MODULE(CRIPSER_MODULE_NAME, m) {
+NB_MODULE(CRIPSER_MODULE_NAME, m) {
     m.doc() =
         CRIPSER_MODULE_DOC "\n"
         "-----------------------\n"
@@ -44,8 +42,8 @@ PYBIND11_MODULE(CRIPSER_MODULE_NAME, m) {
         "   subtract\n";
 
     m.def("computePH", &computePH, "Compute Persistent Homology",
-          py::arg("arr"),  py::arg("maxdim")=3, py::arg("top_dim")=false,
-          py::arg("embedded")=false, py::arg("location")="yes");
+          nb::arg("arr"), nb::arg("maxdim") = 3, nb::arg("top_dim") = false,
+          nb::arg("embedded") = false, nb::arg("location") = "yes");
 
 #ifdef VERSION_INFO
     m.attr("__version__") = VERSION_INFO;

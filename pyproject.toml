@@ -9,21 +9,25 @@ readme = "README.md"
 authors = [
     { name = "Shizuo Kaji", email = "shizuo.kaji@gmail.com"}
     ]
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 
 [build-system]
 # setuptools reads metadata from [project]; setup.py drives CMake directly.
 # cmake/ninja here lets isolated `pip` builds succeed even on fresh Windows hosts.
+# nanobind is needed at build time so CMakeLists.txt can find_package(nanobind).
 requires = [
   "setuptools>=69",
   "wheel",
   "cmake>=3.21",
   "ninja>=1.11",
+  "nanobind>=2.0",
 ]
 build-backend = "setuptools.build_meta"
 
 [tool.cibuildwheel]
-build = "cp3*-*"
+# 3.9–3.11 はバージョン別 wheel、3.12 でビルドする wheel は abi3 タグが付き 3.13+ で再利用される。
+# nanobind は Python 3.9 以上が必要、また 3.13/3.14 のジョブは不要。
+build = ["cp39-*", "cp310-*", "cp311-*", "cp312-*"]
 skip = "pp* cp31?t-*"
 
 [tool.cibuildwheel.linux]
