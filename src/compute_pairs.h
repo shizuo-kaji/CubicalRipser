@@ -53,6 +53,7 @@ private:
   }
 
   std::vector<uint32_t> slots;
+  std::vector<uint64_t> clearing_bits;
   uint32_t ax{0};
   uint32_t ay{0};
   uint32_t az{0};
@@ -80,16 +81,18 @@ public:
   };
 
   void reset(DenseCubicalGrids *dcg, uint8_t target_dim);
+  void compress_to_clearing_bits();
 
   void deactivate() {
     slots.clear();
+    clearing_bits.clear();
     ax = ay = az = aw = 0;
     mask_count = 0;
     cell_dim = std::numeric_limits<uint8_t>::max();
   }
 
   bool active_for(uint8_t target_dim) const {
-    return cell_dim == target_dim && !slots.empty();
+    return cell_dim == target_dim && (!slots.empty() || !clearing_bits.empty());
   }
 
   InsertResult insert(uint64_t k, uint32_t v) {
@@ -102,7 +105,12 @@ public:
   }
 
   bool contains(uint64_t k) const {
-    return !slots.empty() && slots[linearize(k)] != empty_value();
+    if (slots.empty() && clearing_bits.empty()) return false;
+    const size_t idx = linearize(k);
+    if (!clearing_bits.empty()) {
+      return ((clearing_bits[idx >> 6] >> (idx & 63U)) & 1ULL) != 0ULL;
+    }
+    return !slots.empty() && slots[idx] != empty_value();
   }
 };
 

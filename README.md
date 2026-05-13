@@ -1,17 +1,18 @@
 # CubicalRipser: Persistent Homology for 1D Time Series, 2D Images, and 3D/4D Volumes
 
-Authors: Takeki Sudo, Kazushi Ahara (Meiji University), Shizuo Kaji (Kyushu University / Kyoto University)
+Authors: Takeki Sudo, Kazushi Ahara (Meiji University), Shizuo Kaji (Kyoto University)
 
 CubicalRipser is an adaptation of [Ripser](http://ripser.org) by Ulrich Bauer, specialized in fast computation of persistent homology for cubical complexes.
 
 ## Overview
 
 ### Key Features
-- High performance for cubical complexes up to 4D
+- Support cubical complexes up to 4D
+- High performance for 3D
 - C++ command-line binaries and Python modules
 - PyTorch integration for differentiable workflows
 - Utility helpers for loading, plotting, and vectorization
-- Flexible filtrations with both V- and T-constructions
+- Filtrations with both V- and T-constructions
 - Binary coefficients (field F2)
 - Optional creator/destroyer locations in outputs
 
@@ -60,7 +61,7 @@ pip install -U cripser
 import numpy as np
 import cripser
 
-arr = np.load("sample/rand2d.npy")
+arr = np.load("sample/2d_hole.npy")
 ph = cripser.compute_ph(arr, filtration="V", maxdim=2)
 print(ph[:5])
 ```
@@ -143,7 +144,7 @@ Example (V-construction):
 import numpy as np
 import cripser
 
-arr = np.load("sample/rand4d.npy")
+arr = np.load("sample/4d_hole.npy")
 ph = cripser.compute_ph(arr, filtration="V", maxdim=3)
 ```
 
@@ -218,10 +219,10 @@ Examples:
 
 ```bash
 # single NumPy array
-python demo/cr.py sample/rand2d.npy -o ph.csv
+python demo/cr.py sample/2d_hole.npy -o ph.csv
 
 # increase max dimension, use T-construction
-python demo/cr.py sample/rand128_3d.npy -o ph.csv --maxdim 3 --filtration T
+python demo/cr.py sample/bonsai128.npy -o ph.csv --maxdim 3 --filtration T
 
 # directory of DICOM files (sorted)
 python demo/cr.py dicom/ --sort -it dcm -o ph.csv
@@ -230,10 +231,10 @@ python demo/cr.py dicom/ --sort -it dcm -o ph.csv
 python demo/cr.py slices/ -it png -o ph.csv
 
 # save PH as NumPy for reuse
-python demo/cr.py sample/rand128_3d.npy -o ph.npy
+python demo/cr.py sample/bonsai128.npy -o ph.npy
 
 # invert intensity sign
-python demo/cr.py sample/rand128_3d.npy -o ph.csv --negative
+python demo/cr.py sample/bonsai128.npy -o ph.csv --negative
 ```
 
 Selected options (see `-h` for full list):
@@ -258,13 +259,13 @@ Perseus-style text input:
 NumPy input (1D-4D):
 
 ```bash
-./build/cubicalripser --maxdim 3 --output result.csv sample/rand128_3d.npy
+./build/cubicalripser --maxdim 3 --output result.csv sample/bonsai128.npy
 ```
 
 T-construction:
 
 ```bash
-./build/tcubicalripser --maxdim 3 --output volume_ph.csv sample/rand128_3d.npy
+./build/tcubicalripser --maxdim 3 --output volume_ph.csv sample/bonsai128.npy
 ```
 
 
@@ -299,7 +300,7 @@ A helper utility converts images/volumes between multiple formats.
 
 ```bash
 # image -> .npy
-python demo/img2npy.py demo/img.jpg output.npy
+python demo/img2npy.py image.jpg output.npy
 
 # image series glob -> volume .npy (shell expansion)
 python demo/img2npy.py input*.jpg volume.npy
@@ -394,7 +395,7 @@ Example using current APIs:
 import numpy as np
 import cripser
 
-arr = np.load("sample/rand2d.npy")
+arr = np.load("sample/2d_hole.npy")
 ph = cripser.compute_ph(arr, maxdim=1)
 
 # Persistence image (channels = selected homology dimensions)
@@ -419,17 +420,18 @@ For practical CNN examples, see [HomologyCNN](https://github.com/shizuo-kaji/Hom
 
 ## Timing Comparisons
 
-Timing scripts are under `demo/check/`.
+Timing and correctness comparison now use `demo/compare_gudhi.py`.
 
 CLI timing example:
 
 ```bash
-python3 demo/check/timing_cr.py sample/bonsai128.npy \
-  --mode cli \
+python demo/compare_gudhi.py \
+  --methods cli \
+  --sample-datasets sample/bonsai128.npy \
   --cubicalripser-bin build/cubicalripser \
   --tcubicalripser-bin build/tcubicalripser \
   --runs 5 --warmup 1 \
-  -o timing_bonsai128.csv
+  --csv-out demo/logs/timing_bonsai128.csv
 ```
 
 This writes:
@@ -441,14 +443,15 @@ This writes:
 Reference comparison example:
 
 ```bash
-python3 demo/check/timing_cr.py \
-  --mode cli \
+python demo/compare_gudhi.py \
+  --methods cli \
+  --sample-datasets bonsai128 bonsai256 4d_hole \
   --cubicalripser-bin build/cubicalripser \
   --tcubicalripser-bin build/tcubicalripser \
-  --reference-csv demo/check/performance/reference_timing.csv \
+  --reference-csv demo/logs/reference_timing.csv \
   --max-slowdown 1.10 \
   --fail-on-regression \
-  -o timing_current_vs_reference.csv
+  --csv-out demo/logs/timing_current_vs_reference.csv
 ```
 
 ## Testing and Regression Checks
@@ -459,25 +462,20 @@ Run Python tests:
 pytest
 ```
 
-Reference-based checks:
+Timing regression against a saved reference:
 
 ```bash
-# computation regression checks (CLI + Python)
-python3 demo/check/check_computation.py --mode all \
-  --cubicalripser-bin build/cubicalripser \
-  --tcubicalripser-bin build/tcubicalripser
-
-# benchmark and compare against reference timing
-python3 demo/check/timing_cr.py \
-  --mode cli \
+python demo/compare_gudhi.py \
+  --methods cli \
+  --sample-datasets bonsai128 bonsai256 4d_hole \
   --cubicalripser-bin build/cubicalripser \
   --tcubicalripser-bin build/tcubicalripser \
-  --reference-csv demo/check/performance/reference_timing.csv \
+  --reference-csv demo/logs/reference_timing.csv \
   --runs 3 --warmup 1 \
-  -o timing_current_vs_reference.csv
+  --csv-out demo/logs/timing_current_vs_reference.csv
 ```
 
-More details: `demo/check/README.md`.
+More details: `demo/COMPARE.md`.
 
 ## Other Software for Cubical Complex PH
 The following notes are based on limited understanding and tests and may be incomplete.
@@ -496,7 +494,7 @@ The following notes are based on limited understanding and tests and may be inco
   - MPI-parallelized for cluster use
   - commonly used; memory footprint can be relatively large
 
-- [GUDHI](http://gudhi.gforge.inria.fr/) (INRIA)
+- [GUDHI](https://gudhi.inria.fr/) (INRIA)
   - V- and T-construction in arbitrary dimensions
   - strong documentation and usability
   - generally emphasizes usability over raw performance
@@ -508,7 +506,7 @@ The following notes are based on limited understanding and tests and may be inco
   - V-construction
 
 ## Release Notes
-- **v0.0.34** (planned): Switched the Python binding layer from pybind11 to [nanobind](https://github.com/wjakob/nanobind) so a single `cp312-abi3` wheel covers Python 3.12+. **Python 3.8 is dropped** (nanobind requires ≥ 3.9).
+- **v0.0.34**: Switched the Python binding layer from pybind11 to [nanobind](https://github.com/wjakob/nanobind) so a single `cp312-abi3` wheel covers Python 3.12+. **Python 3.8 is dropped** (nanobind requires ≥ 3.9).
 - **v0.0.31**: Changed module structure (hopefully, backward compatible)
 - **v0.0.30**: Improved cache resulting in large speedup
 - **v0.0.24**: Repository renamed from `CubicalRipser_3dim` to `CubicalRipser`.

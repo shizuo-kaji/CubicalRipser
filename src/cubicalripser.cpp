@@ -24,6 +24,8 @@ with this program. If not, see <http://www.gnu.org/licenses/>.
 #include <memory>
 #include <sstream>
 #include <array>
+#include <iomanip>
+#include <limits>
 
 #include "cube.h"
 #include "dense_cubical_grids.h"
@@ -72,6 +74,11 @@ void print_usage() {
               << "  --location, -l      whether creator/destroyer location is included in the output:\n"
               << "                    yes     (default)\n"
               << "                    none\n"
+              << "  --coface-table      use table-driven coboundary enumeration (experimental; default)\n"
+              << "  --no-coface-table   disable table-driven coboundary enumeration\n"
+              << "  --vector-working-column  use sorted-vector working columns for 4D H1 (experimental)\n"
+              << "  --explicit-clearing compress pivot table to a bitset before next-dim clearing (experimental; default)\n"
+              << "  --no-explicit-clearing disable explicit clearing\n"
               << std::endl;
 }
 
@@ -155,6 +162,21 @@ private:
             else if (arg == "--top_dim") {
                 config_.method = ALEXANDER;
             }
+            else if (arg == "--coface-table") {
+                config_.coface_table = true;
+            }
+            else if (arg == "--no-coface-table") {
+                config_.coface_table = false;
+            }
+            else if (arg == "--vector-working-column") {
+                config_.vector_working_column = true;
+            }
+            else if (arg == "--explicit-clearing") {
+                config_.explicit_clearing = true;
+            }
+            else if (arg == "--no-explicit-clearing") {
+                config_.explicit_clearing = false;
+            }
             else if (arg == "--location" || arg == "-l") {
                 if (i + 1 >= argc) throw std::runtime_error("Missing location value");
                 std::string param(argv[++i]);
@@ -229,6 +251,7 @@ void write_output(const std::vector<WritePairs>& writepairs,
         if (!out) {
             throw std::runtime_error("Failed to open output file");
         }
+        out << std::setprecision(std::numeric_limits<double>::max_digits10);
 
         for (const auto& pair : writepairs) {
             out << static_cast<unsigned int>(pair.dim) << "," << pair.birth << "," << pair.death;

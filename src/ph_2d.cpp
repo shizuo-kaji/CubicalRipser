@@ -319,15 +319,27 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
               static_cast<size_t>(EY_RANGE_X) * EY_RANGE_Y;
     std::vector<EdgeRec> edges;
     edges.reserve(cap);
-    std::vector<uint32_t> ecoord;
+    std::vector<uint64_t> ecoord;
     ecoord.reserve(cap);
+
+    auto pack_edge_coord = [](uint32_t etype, uint32_t ex, uint32_t ey) -> uint64_t {
+        return (static_cast<uint64_t>(etype) << 62) |
+               (static_cast<uint64_t>(ex) << 31) |
+               static_cast<uint64_t>(ey);
+    };
+
+    auto unpack_edge_coord = [](uint64_t packed, uint32_t& etype, uint32_t& ex, uint32_t& ey) {
+        etype = static_cast<uint32_t>(packed >> 62);
+        ex = static_cast<uint32_t>((packed >> 31) & 0x7fffffffu);
+        ey = static_cast<uint32_t>(packed & 0x7fffffffu);
+    };
 
     auto add_xedge = [&](uint32_t ex, uint32_t ey) {
         if (one_dim) {
             const double t = tcon ? pix_at(ex, 0) : std::max(pix_at(ex, 0), pix_at(ex + 1, 0));
             if (t >= threshold) return;
             edges.push_back({t, vx_lin(ex, 0), vx_lin(ex + 1, 0), INVALID_ID, INVALID_ID});
-            ecoord.push_back((0u << 30) | (ex << 15));
+            ecoord.push_back(pack_edge_coord(0u, ex, 0u));
             return;
         }
         const bool has_above = (ey >= 1);
@@ -353,7 +365,7 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
         }
         if (t >= threshold) return;
         edges.push_back({t, vx_lin(ex, ey), vx_lin(ex + 1, ey), s_a, s_b});
-        ecoord.push_back((0u << 30) | (ex << 15) | ey);
+        ecoord.push_back(pack_edge_coord(0u, ex, ey));
     };
 
     auto add_yedge = [&](uint32_t ex, uint32_t ey) {
@@ -380,7 +392,7 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
         }
         if (t >= threshold) return;
         edges.push_back({t, vx_lin(ex, ey), vx_lin(ex, ey + 1), s_l, s_r});
-        ecoord.push_back((1u << 30) | (ex << 15) | ey);
+        ecoord.push_back(pack_edge_coord(1u, ex, ey));
     };
 
     for (uint32_t ey = 0; ey < EX_RANGE_Y; ++ey) {
@@ -395,10 +407,8 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
     }
 
     auto creator_pixel = [&](uint32_t i, uint32_t& cx, uint32_t& cy) {
-        const uint32_t pk = ecoord[i];
-        const uint32_t etype = pk >> 30;
-        const uint32_t ex = (pk >> 15) & 0x7fffu;
-        const uint32_t ey = pk & 0x7fffu;
+        uint32_t etype, ex, ey;
+        unpack_edge_coord(ecoord[i], etype, ex, ey);
         if (one_dim) {
             if (tcon) {
                 cx = ex;
@@ -457,7 +467,7 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
     sort_keys_by_t(keys);
     {
         std::vector<EdgeRec> sorted_edges(edges.size());
-        std::vector<uint32_t> sorted_coords(edges.size());
+        std::vector<uint64_t> sorted_coords(edges.size());
         for (size_t i = 0; i < edges.size(); ++i) {
             sorted_edges[i] = edges[keys[i].idx];
             sorted_coords[i] = ecoord[keys[i].idx];

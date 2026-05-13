@@ -21,7 +21,11 @@ class CoboundaryEnumerator {
 private:
   uint8_t position;
   uint8_t dim;
+  uint8_t table_count;
   DenseCubicalGrids *dcg;
+  const int8_t (*table_offsets)[5];
+
+  bool hasNextCofaceTable();
 
 public:
   Cube cube;

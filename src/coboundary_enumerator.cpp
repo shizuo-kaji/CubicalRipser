@@ -22,8 +22,89 @@ with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 using namespace std;
 
+namespace {
+
+const int8_t (*select_coface_offsets(const DenseCubicalGrids *dcg,
+                                     uint8_t dim,
+                                     uint8_t m,
+                                     uint8_t &count))[5] {
+    count = 0;
+    if (dcg->dim < 4) {
+        static const int8_t offsets3[3][3][6][5] = {
+            {
+                {{0,0,0,0,2},{0,0,-1,0,2},{0,0,0,0,1},{0,-1,0,0,1},{0,0,0,0,0},{-1,0,0,0,0}},
+                {{0,0,0,0,0},{0,0, 0,0,0},{0,0,0,0,0},{0, 0,0,0,0},{0,0,0,0,0},{ 0,0,0,0,0}},
+                {{0,0,0,0,0},{0,0, 0,0,0},{0,0,0,0,0},{0, 0,0,0,0},{0,0,0,0,0},{ 0,0,0,0,0}},
+            },
+            {
+                {{0,0,0,0,1},{0,0,-1,0,1},{0,0,0,0,0},{0,-1,0,0,0},{0,0,0,0,0},{0,0,0,0,0}},
+                {{0,0,0,0,2},{0,0,-1,0,2},{0,0,0,0,0},{-1,0,0,0,0},{0,0,0,0,0},{0,0,0,0,0}},
+                {{0,0,0,0,2},{0,-1,0,0,2},{0,0,0,0,1},{-1,0,0,0,1},{0,0,0,0,0},{0,0,0,0,0}},
+            },
+            {
+                {{0,0,0,0,0},{0,0,-1,0,0},{0,0,0,0,0},{0,0,0,0,0},{0,0,0,0,0},{0,0,0,0,0}},
+                {{0,0,0,0,0},{0,-1,0,0,0},{0,0,0,0,0},{0,0,0,0,0},{0,0,0,0,0},{0,0,0,0,0}},
+                {{0,0,0,0,0},{-1,0,0,0,0},{0,0,0,0,0},{0,0,0,0,0},{0,0,0,0,0},{0,0,0,0,0}},
+            }
+        };
+        static const uint8_t counts3[3] = {6, 4, 2};
+        if (dim > 2 || m > 2) return nullptr;
+        count = counts3[dim];
+        return offsets3[dim][m];
+    }
+
+    if (dim > 3) return nullptr;
+    static const int8_t offsets4_dim0[1][8][5] = {{
+        { 0, 0, 0, 0, 3}, { 0, 0, 0, -1, 3}, { 0, 0, 0, 0, 2}, { 0, 0, -1, 0, 2},
+        { 0, 0, 0, 0, 1}, { 0, -1, 0, 0, 1}, { 0, 0, 0, 0, 0}, { -1, 0, 0, 0, 0}
+    }};
+    static const int8_t offsets4_dim1[4][6][5] = {
+        {{0, 0, 0, 0, 3},{0, 0, 0,-1, 3},{0, 0, 0, 0, 1},{0, 0,-1, 0, 1},{0, 0, 0, 0, 0},{0,-1, 0, 0, 0}},
+        {{0, 0, 0, 0, 4},{0, 0, 0,-1, 4},{0, 0, 0, 0, 2},{0, 0,-1, 0, 2},{0, 0, 0, 0, 0},{-1,0, 0, 0, 0}},
+        {{0, 0, 0, 0, 5},{0, 0, 0,-1, 5},{0, 0, 0, 0, 2},{0,-1, 0, 0, 2},{0, 0, 0, 0, 1},{-1,0, 0, 0, 1}},
+        {{0, 0, 0, 0, 5},{0, 0,-1, 0, 5},{0, 0, 0, 0, 4},{0,-1, 0, 0, 4},{0, 0, 0, 0, 3},{-1,0, 0, 0, 3}},
+    };
+    static const int8_t offsets4_dim2[6][4][5] = {
+        {{0,0,0,0,1},{0,0,0,-1,1},{0,0,0,0,0},{0,0,-1,0,0}},
+        {{0,0,0,0,2},{0,0,0,-1,2},{0,0,0,0,0},{0,-1,0,0,0}},
+        {{0,0,0,0,3},{0,0,0,-1,3},{0,0,0,0,0},{-1,0,0,0,0}},
+        {{0,0,0,0,2},{0,0,-1,0,2},{0,0,0,0,1},{0,-1,0,0,1}},
+        {{0,0,0,0,3},{0,0,-1,0,3},{0,0,0,0,1},{-1,0,0,0,1}},
+        {{0,0,0,0,3},{0,-1,0,0,3},{0,0,0,0,2},{-1,0,0,0,2}},
+    };
+    static const int8_t offsets4_dim3[4][2][5] = {
+        {{0,0,0,0,0},{0,0,0,-1,0}},
+        {{0,0,0,0,0},{0,0,-1,0,0}},
+        {{0,0,0,0,0},{0,-1,0,0,0}},
+        {{0,0,0,0,0},{-1,0,0,0,0}},
+    };
+
+    switch (dim) {
+    case 0:
+        count = 8;
+        return offsets4_dim0[0];
+    case 1:
+        if (m > 3) return nullptr;
+        count = 6;
+        return offsets4_dim1[m];
+    case 2:
+        if (m > 5) return nullptr;
+        count = 4;
+        return offsets4_dim2[m];
+    case 3:
+        if (m > 3) return nullptr;
+        count = 2;
+        return offsets4_dim3[m];
+    default:
+        return nullptr;
+    }
+}
+
+} // namespace
+
 CoboundaryEnumerator::CoboundaryEnumerator(DenseCubicalGrids* _dcg, uint8_t _dim)
-    : dcg(_dcg), dim(_dim), nextCoface(Cube()) {}
+    : position(0), dim(_dim), table_count(0), dcg(_dcg),
+      table_offsets(nullptr), nextCoface(Cube()) {}
 
 void CoboundaryEnumerator::setCoboundaryEnumerator(Cube& _s) {
 	cube = _s;
@@ -34,9 +115,53 @@ void CoboundaryEnumerator::setCoboundaryEnumerator(Cube& _s) {
     } else {
         position = 0;
     }
+    table_offsets = nullptr;
+    table_count = 0;
+    if (dcg->config->coface_table) {
+        table_offsets = select_coface_offsets(dcg, dim, cube.m(), table_count);
+    }
+}
+
+bool CoboundaryEnumerator::hasNextCofaceTable() {
+    if (table_offsets == nullptr) return false;
+
+    const double threshold = dcg->threshold;
+    const int cx = static_cast<int>(cube.x());
+    const int cy = static_cast<int>(cube.y());
+    const int cz = static_cast<int>(cube.z());
+    const int cw = static_cast<int>(cube.w());
+
+    for (uint8_t i = position; i < table_count; ++i) {
+        const int8_t *off = table_offsets[i];
+        const int nx = cx + off[0];
+        const int ny = cy + off[1];
+        const int nz = cz + off[2];
+        const int nw = cw + off[3];
+        const uint8_t nm = static_cast<uint8_t>(off[4]);
+        const double birth = dcg->getBirth(static_cast<uint32_t>(nx),
+                                           static_cast<uint32_t>(ny),
+                                           static_cast<uint32_t>(nz),
+                                           static_cast<uint32_t>(nw),
+                                           nm,
+                                           static_cast<uint8_t>(dim + 1));
+        if (birth != threshold) {
+            nextCoface = Cube(birth,
+                              static_cast<uint32_t>(nx),
+                              static_cast<uint32_t>(ny),
+                              static_cast<uint32_t>(nz),
+                              static_cast<uint32_t>(nw),
+                              nm);
+            position = i + 1;
+            return true;
+        }
+    }
+    return false;
 }
 
 bool CoboundaryEnumerator::hasNextCoface() {
+	if (dcg->config->coface_table) {
+		return hasNextCofaceTable();
+	}
 	double birth=0;
     const double threshold = dcg->threshold;
 	auto cx = cube.x();

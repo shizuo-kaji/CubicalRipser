@@ -1,6 +1,6 @@
 [project]
 name = "cripser"
-version = "0.0.33"
+version = "0.0.34"
 description = "Cubical Ripser Python binding"
 license = { file = "LICENSE" }
 urls = { "Homepage" = "https://github.com/shizuo-kaji/CubicalRipser_3dim" }
@@ -25,8 +25,8 @@ requires = [
 build-backend = "setuptools.build_meta"
 
 [tool.cibuildwheel]
-# 3.9–3.11 はバージョン別 wheel、3.12 でビルドする wheel は abi3 タグが付き 3.13+ で再利用される。
-# nanobind は Python 3.9 以上が必要、また 3.13/3.14 のジョブは不要。
+# 3.9–3.11 use version-specific wheels; wheels built for 3.12 use the abi3 tag and will be reused for 3.13+.
+# nanobind requires Python 3.9 or higher; additionally, jobs for 3.13/3.14 are not required.
 build = ["cp39-*", "cp310-*", "cp311-*", "cp312-*"]
 skip = "pp* cp31?t-*"
 

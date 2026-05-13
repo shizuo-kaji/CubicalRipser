@@ -25,6 +25,9 @@ struct Config {
 	int min_recursion_to_cache = 0; // num of minimum recursions for a reduced column to be cached
 	uint32_t cache_size = 1 << 31; // the maximum number of reduced columns to be cached
 	int maxiter = 1000000; // maximum number of iterations for each column (for debug)
+	bool coface_table = true; // use table-driven coboundary enumeration
+	bool vector_working_column = false; // use sorted-vector working columns even for 4D H1
+	bool explicit_clearing = true; // compress pivots to a bitset before clearing next-dim columns
 };
 
 #endif

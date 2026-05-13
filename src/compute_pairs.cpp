@@ -131,9 +131,16 @@ void xor_sorted_columns(CachedColumn &column, const CachedColumn &addon,
   column.swap(scratch);
 }
 
+size_t suggested_cache_reserve(size_t column_count, uint32_t cache_size) {
+  const size_t bounded_limit = std::min<size_t>(column_count, cache_size);
+  const size_t expected_reduced = column_count / 8U + 1024U;
+  return std::min(bounded_limit, expected_reduced) + 10U;
+}
+
 } // namespace
 
 void DensePivotTable::reset(DenseCubicalGrids *dcg, uint8_t target_dim) {
+  clearing_bits.clear();
   ax = dcg->ax;
   ay = dcg->ay;
   az = dcg->az;
@@ -149,6 +156,20 @@ void DensePivotTable::reset(DenseCubicalGrids *dcg, uint8_t target_dim) {
       static_cast<size_t>(az) * static_cast<size_t>(aw) *
       static_cast<size_t>(mask_count);
   slots.assign(total_slots, empty_value());
+}
+
+void DensePivotTable::compress_to_clearing_bits() {
+  if (slots.empty()) {
+    return;
+  }
+  const size_t total_slots = slots.size();
+  clearing_bits.assign((total_slots + 63U) >> 6, 0ULL);
+  for (size_t i = 0; i < total_slots; ++i) {
+    if (slots[i] != empty_value()) {
+      clearing_bits[i >> 6] |= 1ULL << (i & 63U);
+    }
+  }
+  std::vector<uint32_t>().swap(slots);
 }
 
 ComputePairs::ComputePairs(DenseCubicalGrids *_dcg,
@@ -170,7 +191,7 @@ void ComputePairs::compute_pairs_main(vector<Cube> &ctr) {
   pivot_column_index->reset(dcg, dim + 1);
 
   const bool use_heap_working_column =
-      (dcg->dim == 4 && dim == 1);
+      (!config->vector_working_column);
   if (use_heap_working_column) {
     std::vector<WritePairs> local_wp;
     int num_apparent_pairs = 0;
@@ -181,7 +202,8 @@ void ComputePairs::compute_pairs_main(vector<Cube> &ctr) {
     unordered_map<uint32_t, CachedColumn> recorded_wc;
     queue<uint32_t> cached_column_idx;
     recorded_wc.max_load_factor(0.7f);
-    recorded_wc.reserve(std::min<size_t>(ctl_size, config->cache_size) + 10);
+    recorded_wc.reserve(suggested_cache_reserve(ctl_size, config->cache_size));
+    const bool bounded_cache = static_cast<size_t>(config->cache_size) < ctl_size;
     CubeQue working_coboundary;
     working_coboundary.reserve(64);
 
@@ -241,10 +263,12 @@ void ComputePairs::compute_pairs_main(vector<Cube> &ctr) {
 
           if (num_recurse >= config->min_recursion_to_cache) {
             add_cache(i, working_coboundary, recorded_wc);
-            cached_column_idx.push(i);
-            if (cached_column_idx.size() > config->cache_size) {
-              recorded_wc.erase(cached_column_idx.front());
-              cached_column_idx.pop();
+            if (bounded_cache) {
+              cached_column_idx.push(i);
+              if (cached_column_idx.size() > config->cache_size) {
+                recorded_wc.erase(cached_column_idx.front());
+                cached_column_idx.pop();
+              }
             }
           }
           double death = pivot.birth;
@@ -268,6 +292,9 @@ void ComputePairs::compute_pairs_main(vector<Cube> &ctr) {
     if (config->verbose) {
       cout << "# apparent pairs: " << num_apparent_pairs << endl;
     }
+    if (config->explicit_clearing && pivot_column_index) {
+      pivot_column_index->compress_to_clearing_bits();
+    }
     return;
   }
 
@@ -280,7 +307,8 @@ void ComputePairs::compute_pairs_main(vector<Cube> &ctr) {
   unordered_map<uint32_t, CachedColumn> recorded_wc;
   queue<uint32_t> cached_column_idx;
   recorded_wc.max_load_factor(0.7f);
-  recorded_wc.reserve(std::min<size_t>(ctl_size, config->cache_size) + 10);
+  recorded_wc.reserve(suggested_cache_reserve(ctl_size, config->cache_size));
+  const bool bounded_cache = static_cast<size_t>(config->cache_size) < ctl_size;
   CachedColumn working_coboundary;
   working_coboundary.reserve(64);
   CachedColumn merge_scratch;
@@ -339,10 +367,12 @@ void ComputePairs::compute_pairs_main(vector<Cube> &ctr) {
         } else { // new pivot inserted
           if (num_recurse >= config->min_recursion_to_cache) {
             add_cache(i, working_coboundary, recorded_wc);
-            cached_column_idx.push(i);
-            if (cached_column_idx.size() > config->cache_size) {
-              recorded_wc.erase(cached_column_idx.front());
-              cached_column_idx.pop();
+            if (bounded_cache) {
+              cached_column_idx.push(i);
+              if (cached_column_idx.size() > config->cache_size) {
+                recorded_wc.erase(cached_column_idx.front());
+                cached_column_idx.pop();
+              }
             }
           }
           double death = pivot.birth;
@@ -368,6 +398,9 @@ void ComputePairs::compute_pairs_main(vector<Cube> &ctr) {
 
   if (config->verbose) {
     cout << "# apparent pairs: " << num_apparent_pairs << endl;
+  }
+  if (config->explicit_clearing && pivot_column_index) {
+    pivot_column_index->compress_to_clearing_bits();
   }
 }
 
@@ -514,6 +547,11 @@ void ComputePairs::assemble_columns_to_reduce(vector<Cube> &ctr, uint8_t _dim) {
   const double threshold = dcg->threshold;
   const bool skip_paired_columns =
       pivot_column_index && pivot_column_index->active_for(dim);
+  // Note: Stage 2 Morse PH filtering was explored and found unsound -- dropping
+  // V-paired cells from ctr or from the working coboundary is NOT equivalent
+  // to xor-ing with a trivial column {tau} when a lower-birth column naturally
+  // picks tau up as its pivot.  A correct integration needs a rebuilt Morse
+  // boundary operator over V-paths.  See agents.md section 10.
   for (uint8_t m = 0; m < max_m; ++m) {
     for (uint32_t w = 0; w < dcg->aw; ++w) {
       for (uint32_t z = 0; z < dcg->az; ++z) {

@@ -12,6 +12,9 @@ with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 
+#include <cstdint>
+#include <limits>
+#include <stdexcept>
 #include <vector>
 #include "dense_cubical_grids.h"
 
@@ -19,8 +22,7 @@ using namespace std;
 
 class UnionFind{
 private:
-	vector<uint64_t> parent;
-	vector<double> time_max;
+	vector<uint32_t> parent;
 public:
 	vector<double> birthtime;
 	UnionFind(DenseCubicalGrids* _dcg);
@@ -28,26 +30,39 @@ public:
 	void link(uint64_t x, uint64_t y);
 };
 
-UnionFind::UnionFind(DenseCubicalGrids* _dcg) {
+inline UnionFind::UnionFind(DenseCubicalGrids* _dcg) {
 	uint64_t n = _dcg->ax * _dcg->ay * _dcg->az * _dcg->aw;
-	parent.resize(n);
-	birthtime.resize(n);
-	time_max.resize(n);
+	if (n > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
+		throw std::length_error("UnionFind supports at most 2^32-1 vertices");
+	}
+	parent.resize(static_cast<size_t>(n));
+	birthtime.resize(static_cast<size_t>(n));
 	//cout << n << " vertices" << endl;
 
-	uint64_t i=0;
+	uint32_t i=0;
+	auto append_vertex = [&](double birth) {
+		parent[i] = i;
+		birthtime[i] = birth;
+		++i;
+	};
     const bool tconstruction = _dcg->config->tconstruction;
     if (!tconstruction) {
+        if (!_dcg->planar_fastpath_dense.empty()) {
+            for (uint32_t y = 0; y < _dcg->ay; ++y) {
+                const size_t row = static_cast<size_t>(_dcg->img_x) * y;
+                for (uint32_t x = 0; x < _dcg->ax; ++x) {
+                    append_vertex(_dcg->planar_fastpath_dense[row + x]);
+                }
+            }
+            return;
+        }
         if (_dcg->dim < 4) {
             for (uint32_t w = 0; w < _dcg->aw; ++w) {
                 (void)w;
                 for (uint32_t z = 0; z < _dcg->az; ++z) {
                     for (uint32_t y = 0; y < _dcg->ay; ++y) {
                         for (uint32_t x = 0; x < _dcg->ax; ++x) {
-                            parent[i] = i;
-                            birthtime[i] = (*_dcg->dense)(x + 1, y + 1, z + 1);
-                            time_max[i] = birthtime[i]; // maximum filtration value for the group
-                            i++;
+                            append_vertex((*_dcg->dense)(x + 1, y + 1, z + 1));
                         }
                     }
                 }
@@ -57,10 +72,7 @@ UnionFind::UnionFind(DenseCubicalGrids* _dcg) {
                 for (uint32_t z = 0; z < _dcg->az; ++z) {
                     for (uint32_t y = 0; y < _dcg->ay; ++y) {
                         for (uint32_t x = 0; x < _dcg->ax; ++x) {
-                            parent[i] = i;
-                            birthtime[i] = (*_dcg->dense)(x + 1, y + 1, z + 1, w + 1);
-                            time_max[i] = birthtime[i]; // maximum filtration value for the group
-                            i++;
+                            append_vertex((*_dcg->dense)(x + 1, y + 1, z + 1, w + 1));
                         }
                     }
                 }
@@ -71,10 +83,7 @@ UnionFind::UnionFind(DenseCubicalGrids* _dcg) {
             for (uint32_t z = 0; z < _dcg->az; ++z) {
                 for (uint32_t y = 0; y < _dcg->ay; ++y) {
                     for (uint32_t x = 0; x < _dcg->ax; ++x) {
-                        parent[i] = i;
-                        birthtime[i] = _dcg->getBirth(x, y, z, w, 0, 0);
-                        time_max[i] = birthtime[i]; // maximum filtration value for the group
-                        i++;
+                        append_vertex(_dcg->getBirth(x, y, z, w, 0, 0));
                     }
                 }
             }
@@ -83,30 +92,30 @@ UnionFind::UnionFind(DenseCubicalGrids* _dcg) {
 }
 
 // find the root of a node x (specified by the index)
-uint64_t UnionFind::find(uint64_t x){
-	uint64_t y = x, z = parent[y];
-	while (z != y) {
-		y = z;
-		z = parent[y];
+inline uint64_t UnionFind::find(uint64_t x){
+	uint32_t root = static_cast<uint32_t>(x);
+	uint32_t next = parent[root];
+	while (next != root) {
+		root = next;
+		next = parent[root];
 	}
-	// reassign parents to the found root z
-	y = parent[x];
-	while (z != y) {
-		parent[x] = z;
+	uint32_t y = parent[static_cast<uint32_t>(x)];
+	while (root != y) {
+		parent[static_cast<uint32_t>(x)] = root;
 		x = y;
-		y = parent[x];
+		y = parent[static_cast<uint32_t>(x)];
 	}
-	return z;
+	return root;
 }
 
 // merge nodes x and y (they should be root nodes); older will be the new parent
-void UnionFind::link(uint64_t x, uint64_t y){
+inline void UnionFind::link(uint64_t x, uint64_t y){
 	if (x == y) return;
-	if (birthtime[x] >= birthtime[y]){
-		parent[x] = y;
-		time_max[y] = std::max(time_max[x], time_max[y]);
-	} else if(birthtime[x] < birthtime[y]) {
-		parent[y] = x;
-		time_max[x] = std::max(time_max[x], time_max[y]);
+	const double bx = birthtime[x];
+	const double by = birthtime[y];
+	if (bx >= by){
+		parent[static_cast<uint32_t>(x)] = static_cast<uint32_t>(y);
+	} else {
+		parent[static_cast<uint32_t>(y)] = static_cast<uint32_t>(x);
 	}
 }
