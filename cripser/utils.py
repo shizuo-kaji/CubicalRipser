@@ -66,18 +66,25 @@ def compute_ph(
     top_dim: bool = False,
     embedded: bool = False,
     location: str = "yes",
+    representatives: bool = False,
     inf_cutoff: bool = True,
-) -> np.ndarray:
+) -> np.ndarray | tuple[np.ndarray, list[list[list[int]]]]:
     """Compute persistent homology using `cripser` or `tcripser`.
 
     Parameters
     - arr: numeric numpy array (1D/2D/3D/4D); non-float64 input is converted as needed
     - maxdim, top_dim, embedded, location: forwarded to the pybind function
+    - representatives: if ``True``, also return F₂ homology-cycle
+      representatives aligned with the rows of the persistence table; it
+      cannot be combined with ``top_dim=True``
     - inf_cutoff: value to use as cutoff for detecting DBL_MAX (default is _INF_CUTOFF)
 
     Returns
-    - np.ndarray of shape (n, 9) (or (n,11) in 4D case): columns are
-      [dim, birth, death, b_x, b_y, b_z, d_x, d_y, d_z]
+    - Normally, an np.ndarray of shape (n, 9) (or (n,11) in 4D case):
+      [dim, birth, death, b_x, b_y, b_z, d_x, d_y, d_z].  With
+      ``representatives=True``, return ``(pairs, cycles)``.  ``cycles[i]`` is
+      the F₂ cycle for ``pairs[i]``; every cell is ``[x, y, z, cell_type]``
+      (or ``[x, y, z, w, cell_type]`` in 4D).
     """
     arr = np.asarray(arr)
     if arr.ndim < 1 or arr.ndim > 4:
@@ -91,6 +98,7 @@ def compute_ph(
             top_dim=top_dim,
             embedded=embedded,
             location=location,
+            representatives=representatives,
         )
         out = computePH_T(arr, **kwargs)
     else:
@@ -99,13 +107,19 @@ def compute_ph(
             top_dim=top_dim,
             embedded=embedded,
             location=location,
+            representatives=representatives,
         )
         out = computePH(arr, **kwargs)
+    cycles = None
+    if representatives:
+        out, cycles = out
     # Convert CubicalRipser's DBL_MAX to np.inf
     if inf_cutoff:
         mask = out[:, 2] >= _INF_CUTOFF  # death column is index 2
         if mask.any():
             out[mask, 2] = np.inf
+    if representatives:
+        return out, cycles
     return out
 
 

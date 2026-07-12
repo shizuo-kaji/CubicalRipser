@@ -28,6 +28,7 @@ struct Config {
 	bool coface_table = true; // use table-driven coboundary enumeration
 	bool vector_working_column = false; // use sorted-vector working columns even for 4D H1
 	bool explicit_clearing = true; // compress pivots to a bitset before clearing next-dim columns
+	bool representatives = false; // direct homology reduction is requested by the Python API
 };
 
 #endif

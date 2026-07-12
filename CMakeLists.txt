@@ -40,6 +40,7 @@ add_library(mylib STATIC
     src/coboundary_enumerator.cpp
     src/joint_pairs.cpp
     src/ph_2d.cpp
+    src/representatives.cpp
 )
 
 # V-construction library

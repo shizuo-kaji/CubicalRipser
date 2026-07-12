@@ -13,6 +13,7 @@ with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <fstream>
 #include <iostream>
 #include <algorithm>
+#include <cstring>
 #include <queue>
 #include <vector>
 #include <unordered_map>
@@ -33,6 +34,7 @@ typedef SSIZE_T ssize_t;
 #include "config.h"
 #include "dense_cubical_grids.h"
 #include "ph_2d.h"
+#include "representatives.h"
 
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
@@ -44,16 +46,23 @@ using namespace std;
 using ResultArray = nb::ndarray<nb::numpy, double, nb::ndim<2>>;
 
 /////////////////////////////////////////////
-inline ResultArray computePH(
+inline nb::object computePH(
     nb::ndarray<const double, nb::any_contig> img,
     int maxdim = 3,
     bool top_dim = false,
     bool embedded = false,
-    const std::string &location = "yes")
+    const std::string &location = "yes",
+    bool representatives = false)
 {
     // we ignore "location" argument
+    if (representatives && top_dim) {
+        throw std::invalid_argument(
+            "representatives=True is not supported with top_dim=True; "
+            "top_dim uses an Alexander-duality shortcut rather than direct homology");
+    }
     Config config;
     config.format = NUMPY;
+    config.representatives = representatives;
 
     vector<WritePairs> writepairs; // (dim birth death x y z)
     writepairs.reserve(1000);
@@ -180,5 +189,83 @@ inline ResultArray computePH(
 
     nb::capsule owner(data_ptr, [](void *p) noexcept { delete[] static_cast<double *>(p); });
     const size_t shape[2] = { static_cast<size_t>(p), static_cast<size_t>(num_column) };
-    return ResultArray(data_ptr, 2, shape, owner);
+    ResultArray result(data_ptr, 2, shape, owner);
+    if (!representatives) {
+        return nb::cast(result);
+    }
+
+    // The ordinary PH calculation above deliberately remains unchanged.  Only
+    // this opt-in branch performs direct boundary reduction with column
+    // tracking, which is what supplies homology (rather than cohomology)
+    // cycles.
+    const auto representative_cycles =
+        compute_homology_representatives(dcg.get(), config);
+
+    struct RepresentativeKey {
+        uint8_t dim;
+        uint64_t birth;
+        uint64_t death;
+
+        bool operator==(const RepresentativeKey &other) const {
+            return dim == other.dim && birth == other.birth && death == other.death;
+        }
+    };
+    struct RepresentativeKeyHash {
+        size_t operator()(const RepresentativeKey &key) const {
+            const uint64_t mixed = key.birth ^ (key.death + 0x9e3779b97f4a7c15ULL +
+                                                 (key.birth << 6U) + (key.birth >> 2U));
+            return std::hash<uint64_t>{}(mixed ^ (static_cast<uint64_t>(key.dim) << 56U));
+        }
+    };
+    const auto double_bits = [](double value) {
+        uint64_t bits = 0;
+        std::memcpy(&bits, &value, sizeof(bits));
+        return bits;
+    };
+
+    // Multiple intervals can have equal endpoints.  Keep each group in its
+    // reduction order and consume one cycle per ordinary output row, thereby
+    // preserving the established persistence-table order for the public API.
+    std::unordered_map<RepresentativeKey, std::vector<size_t>, RepresentativeKeyHash>
+        cycles_by_interval;
+    cycles_by_interval.reserve(representative_cycles.size());
+    for (size_t i = 0; i < representative_cycles.size(); ++i) {
+        const auto &cycle = representative_cycles[i];
+        cycles_by_interval[{cycle.dim, double_bits(cycle.birth), double_bits(cycle.death)}]
+            .push_back(i);
+    }
+    std::unordered_map<RepresentativeKey, size_t, RepresentativeKeyHash> next_cycle;
+
+    nb::list python_cycles;
+    for (const auto &pair : writepairs) {
+        const RepresentativeKey key = {
+            pair.dim, double_bits(pair.birth), double_bits(pair.death)};
+        const auto found = cycles_by_interval.find(key);
+        const size_t used = next_cycle[key]++;
+        if (found == cycles_by_interval.end() || used >= found->second.size()) {
+            throw std::runtime_error(
+                "representatives: direct homology reduction did not reproduce a persistence interval");
+        }
+
+        const auto &cycle = representative_cycles[found->second[used]];
+        nb::list python_chain;
+        for (const Cube &cell : cycle.cells) {
+            // Lists keep the variable ambient dimension simple while remaining
+            // directly usable as ``np.asarray(cycle, dtype=np.uint32)``.
+            nb::list encoded_cell;
+            encoded_cell.append(cell.x());
+            encoded_cell.append(cell.y());
+            encoded_cell.append(cell.z());
+            if (dcg->dim == 4) {
+                encoded_cell.append(cell.w());
+                encoded_cell.append(cell.m());
+            } else {
+                encoded_cell.append(cell.m());
+            }
+            python_chain.append(std::move(encoded_cell));
+        }
+        python_cycles.append(std::move(python_chain));
+    }
+
+    return nb::make_tuple(nb::cast(result), std::move(python_cycles));
 }

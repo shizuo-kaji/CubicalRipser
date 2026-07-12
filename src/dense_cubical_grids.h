@@ -308,6 +308,7 @@ public:
         const bool use_planar_fastpath_storage =
             !embedded &&
             config->method == LINKFIND &&
+            !config->representatives &&
             dim <= 2 &&
             az == 1 &&
             aw == 1;

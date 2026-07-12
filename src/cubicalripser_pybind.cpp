@@ -43,7 +43,8 @@ NB_MODULE(CRIPSER_MODULE_NAME, m) {
 
     m.def("computePH", &computePH, "Compute Persistent Homology",
           nb::arg("arr"), nb::arg("maxdim") = 3, nb::arg("top_dim") = false,
-          nb::arg("embedded") = false, nb::arg("location") = "yes");
+          nb::arg("embedded") = false, nb::arg("location") = "yes",
+          nb::arg("representatives") = false);
 
 #ifdef VERSION_INFO
     m.attr("__version__") = VERSION_INFO;

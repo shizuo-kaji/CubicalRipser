@@ -52,14 +52,16 @@ except ModuleNotFoundError as exc:
     wasserstein_distance = _distance_deps_required
 
 try:
-    from .plots import plot_diagrams
+    from .plots import plot_cycle, plot_cycles, plot_diagrams
 except ModuleNotFoundError as exc:
     if exc.name != "matplotlib":
         raise
 
     def _matplotlib_required(*args, **kwargs):
-        raise ImportError("matplotlib is required for `plot_diagrams`.")
+        raise ImportError("matplotlib is required for the plotting helpers.")
 
+    plot_cycle = _matplotlib_required
+    plot_cycles = _matplotlib_required
     plot_diagrams = _matplotlib_required
 
 __all__ = ["computePH", "computePH_T",
@@ -85,4 +87,6 @@ __all__ = ["computePH", "computePH_T",
     "compute_ph_torch",
     "finite_lifetimes",
     "wasserstein_distance",
+    "plot_cycle",
+    "plot_cycles",
     "plot_diagrams"]

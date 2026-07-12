@@ -36,6 +36,7 @@ If you use this software in research, please cite:
 - [Input Formats](#input-formats)
 - [V and T Constructions](#v-and-t-constructions)
 - [Creator and Destroyer Cells](#creator-and-destroyer-cells)
+- [Representative Homology Cycles](#representative-homology-cycles)
 - [Deep Learning Integration](#deep-learning-integration)
 - [Timing Comparisons](#timing-comparisons)
 - [Testing and Regression Checks](#testing-and-regression-checks)
@@ -383,6 +384,47 @@ arr[x1,y1,z1] - arr[x2,y2,z2] = death - birth = lifetime
 
 Thanks to Nicholas Byrne for suggesting this convention and providing test code.
 
+## Representative Homology Cycles
+
+The Python APIs can optionally return a representative **homology cycle** for
+every persistence interval. This uses direct boundary reduction over F2, so it
+is intended for inspection and visualization rather than high-throughput PH
+calculation.
+
+```python
+pairs, cycles = cripser.compute_ph(image, maxdim=1, representatives=True)
+
+# cycles[i] is the cycle for persistence row pairs[i].
+# Each cell is [x, y, z, cell_type] (or [x, y, z, w, cell_type] in 4D).
+```
+
+All listed cells have coefficient one in F2. `cell_type` identifies the cell
+orientation; for example, planar 1-cycles use `0` for x-edges and `1` for
+y-edges. Convert an individual chain to an array with
+`np.asarray(cycles[i], dtype=np.uint32)` if convenient.
+
+Use `plot_cycle` for a single planar H₁ representative, or `plot_cycles` for
+several representatives. Passing the original 2-D image draws the cycles in
+the same `(x, y)` coordinates over the image; use `overlay=False` to omit the
+background.
+
+```python
+ax = cripser.plot_cycles(
+    [cycles[i] for i in selected_indices],
+    image=image,
+    labels=["H₁ #1", "H₁ #2"],
+)
+```
+
+For an example with two figure-eight peaks, see the
+[representative-cycles section](demo/cubicalripser.ipynb#representative-cycles)
+of the main tutorial.
+
+The option is disabled by default. In that mode CubicalRipser keeps using its
+existing optimized cohomology/coboundary reduction without allocating or
+tracking representative chains. It cannot be combined with `top_dim=True`,
+which uses a separate Alexander-duality shortcut.
+
 ## Deep Learning Integration
 
 The original project examples include lifetime-enhanced and histogram-style topological channels for CNNs.
@@ -506,6 +548,7 @@ The following notes are based on limited understanding and tests and may be inco
   - V-construction
 
 ## Release Notes
+- **v0.0.35**: Added support for computation of cycle representatives (homology cycles) for each persistence interval.
 - **v0.0.34**: Switched the Python binding layer from pybind11 to [nanobind](https://github.com/wjakob/nanobind) so a single `cp312-abi3` wheel covers Python 3.12+. **Python 3.8 is dropped** (nanobind requires ≥ 3.9).
 - **v0.0.31**: Changed module structure (hopefully, backward compatible)
 - **v0.0.30**: Improved cache resulting in large speedup
