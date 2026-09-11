@@ -17,6 +17,14 @@ with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 constexpr uint64_t NONE = 0xffffffffffffffff;
 
+// Cube::index packs x,y,z,w into 15 bits each, so every coordinate must stay
+// below 2^15.  Padding adds up to 4 per axis (2 for the outer boundary, 2 more
+// when embedded) and T-construction adds 1, so callers must reject inputs whose
+// raw axis length exceeds this before any Cube is built -- otherwise
+// DensePivotTable::linearize() indexes out of bounds.
+constexpr uint32_t CUBE_COORD_BITS = 15;
+constexpr uint32_t CUBE_MAX_AXIS = (1u << CUBE_COORD_BITS) - 8u; // 32760
+
 class Cube {
 public:
     double birth{0};

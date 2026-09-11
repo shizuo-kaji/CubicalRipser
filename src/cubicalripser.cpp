@@ -62,6 +62,8 @@ void print_usage() {
               << "  --verbose, -v       enable verbose output\n"
               << "  --threshold <t>, -t compute cubical complexes up to birth time <t>\n"
               << "  --maxdim <t>, -m    compute persistent homology up to dimension <t>\n"
+              << "  --threads <n>       worker threads for grid scans and sorts\n"
+              << "                      (1 = sequential, default; 0 = auto). Output is identical either way.\n"
               << "  --algorithm, -a     algorithm to compute the 0-dim persistent homology:\n"
               << "                    link_find      (default)\n"
               << "                    compute_pairs  (slow in most cases)\n"
@@ -161,6 +163,14 @@ private:
             }
             else if (arg == "--top_dim") {
                 config_.method = ALEXANDER;
+            }
+            else if (arg == "--threads") {
+                if (i + 1 >= argc) throw std::runtime_error("Missing threads value");
+                try {
+                    config_.num_threads = std::stoi(argv[++i]);
+                } catch (const std::exception&) {
+                    throw std::runtime_error("Invalid threads value");
+                }
             }
             else if (arg == "--coface-table") {
                 config_.coface_table = true;

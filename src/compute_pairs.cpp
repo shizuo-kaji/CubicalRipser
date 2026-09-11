@@ -131,6 +131,34 @@ void xor_sorted_columns(CachedColumn &column, const CachedColumn &addon,
   column.swap(scratch);
 }
 
+// The two working-column representations differ only in how a column is
+// accumulated.  Overloads keep the reduction loop itself single-sourced while
+// the template still emits one specialised copy per representation, exactly as
+// the two hand-written loops used to.
+void column_add(CubeQue &column, const CachedColumn &addon, CachedColumn &) {
+  for (const auto &cube : addon) {
+    column.push(cube);
+  }
+}
+
+void column_add(CachedColumn &column, const CachedColumn &addon,
+                CachedColumn &scratch) {
+  xor_sorted_columns(column, addon, scratch);
+}
+
+// A freshly enumerated coboundary still has duplicates; the sorted-vector
+// representation must normalise it first, the heap absorbs them on pop.
+void column_add_fresh(CubeQue &column, CachedColumn &batch,
+                      CachedColumn &scratch) {
+  column_add(column, batch, scratch);
+}
+
+void column_add_fresh(CachedColumn &column, CachedColumn &batch,
+                      CachedColumn &scratch) {
+  normalize_column(batch);
+  xor_sorted_columns(column, batch, scratch);
+}
+
 size_t suggested_cache_reserve(size_t column_count, uint32_t cache_size) {
   const size_t bounded_limit = std::min<size_t>(column_count, cache_size);
   const size_t expected_reduced = column_count / 8U + 1024U;
@@ -179,127 +207,14 @@ ComputePairs::ComputePairs(DenseCubicalGrids *_dcg,
                          // where we skip dim=0)
 }
 
-void ComputePairs::compute_pairs_main(vector<Cube> &ctr) {
-  auto ctl_size = ctr.size();
-  if (config->verbose) {
-    cout << "# columns to reduce: " << ctl_size << endl;
-  }
-
-  if (!pivot_column_index) {
-    pivot_column_index = std::make_unique<DensePivotTable>();
-  }
-  pivot_column_index->reset(dcg, dim + 1);
-
-  const bool use_heap_working_column =
-      (!config->vector_working_column);
-  if (use_heap_working_column) {
-    std::vector<WritePairs> local_wp;
-    int num_apparent_pairs = 0;
-
-    CachedColumn batch_column;
-    batch_column.reserve((dcg->dim == 4) ? 8u : 6u);
-    CoboundaryEnumerator cofaces(dcg, dim);
-    unordered_map<uint32_t, CachedColumn> recorded_wc;
-    queue<uint32_t> cached_column_idx;
-    recorded_wc.max_load_factor(0.7f);
-    recorded_wc.reserve(suggested_cache_reserve(ctl_size, config->cache_size));
-    const bool bounded_cache = static_cast<size_t>(config->cache_size) < ctl_size;
-    CubeQue working_coboundary;
-    working_coboundary.reserve(64);
-
-    for (uint32_t i = 0; i < ctl_size; ++i) {
-      working_coboundary.clear();
-      double birth = ctr[i].birth;
-      auto j = i;
-      Cube pivot;
-      bool might_be_apparent_pair = true;
-      bool found_apparent_pair = false;
-      int num_recurse = 0;
-
-      for (int k = 0; k < config->maxiter; ++k) {
-        bool cache_hit = false;
-        if (i != j) {
-          auto findWc = recorded_wc.find(j);
-          if (findWc != recorded_wc.end()) {
-            cache_hit = true;
-            for (const auto &c : findWc->second) {
-              working_coboundary.push(c);
-            }
-          }
-        }
-        if (!cache_hit) {
-          batch_column.clear();
-          cofaces.setCoboundaryEnumerator(ctr[j]);
-          const double column_birth = ctr[j].birth;
-          while (cofaces.hasNextCoface()) {
-            batch_column.push_back(cofaces.nextCoface);
-            if (might_be_apparent_pair &&
-                (column_birth == cofaces.nextCoface.birth)) {
-              auto apparent =
-                  pivot_column_index->insert(cofaces.nextCoface.index, i);
-              if (apparent.second) {
-                found_apparent_pair = true;
-                ++num_apparent_pairs;
-                break;
-              }
-              might_be_apparent_pair = false;
-            }
-          }
-          if (found_apparent_pair) {
-            break;
-          }
-          for (const auto &e : batch_column) {
-            working_coboundary.push(e);
-          }
-        }
-        pivot = get_pivot(working_coboundary);
-        if (pivot.index != NONE) {
-          auto insert_result = pivot_column_index->insert(pivot.index, i);
-          if (!insert_result.second) {
-            j = insert_result.first;
-            num_recurse++;
-            continue;
-          }
-
-          if (num_recurse >= config->min_recursion_to_cache) {
-            add_cache(i, working_coboundary, recorded_wc);
-            if (bounded_cache) {
-              cached_column_idx.push(i);
-              if (cached_column_idx.size() > config->cache_size) {
-                recorded_wc.erase(cached_column_idx.front());
-                cached_column_idx.pop();
-              }
-            }
-          }
-          double death = pivot.birth;
-          if (birth != death) {
-            local_wp.emplace_back(
-                WritePairs(dim, ctr[i], pivot, dcg, config->print));
-          }
-          break;
-        }
-
-        if (birth != dcg->threshold) {
-          local_wp.emplace_back(
-              WritePairs(dim, birth, dcg->threshold, ctr[i].x(), ctr[i].y(),
-                         ctr[i].z(), ctr[i].w(), 0, 0, 0, 0, config->print));
-        }
-        break;
-      }
-    }
-
-    wp->insert(wp->end(), local_wp.begin(), local_wp.end());
-    if (config->verbose) {
-      cout << "# apparent pairs: " << num_apparent_pairs << endl;
-    }
-    if (config->explicit_clearing && pivot_column_index) {
-      pivot_column_index->compress_to_clearing_bits();
-    }
-    return;
-  }
-
+// Standard left-to-right cohomology column reduction.  `Column` selects the
+// working-column representation: a binary heap (CubeQue), or a sorted vector
+// XOR-merged in place.  Both instantiations are emitted separately, so neither
+// pays for the other.
+template <typename Column>
+void ComputePairs::reduce_columns(vector<Cube> &ctr, size_t ctl_size,
+                                  int &num_apparent_pairs) {
   std::vector<WritePairs> local_wp;
-  int num_apparent_pairs = 0;
 
   CachedColumn batch_column;
   batch_column.reserve((dcg->dim == 4) ? 8u : 6u);
@@ -309,11 +224,10 @@ void ComputePairs::compute_pairs_main(vector<Cube> &ctr) {
   recorded_wc.max_load_factor(0.7f);
   recorded_wc.reserve(suggested_cache_reserve(ctl_size, config->cache_size));
   const bool bounded_cache = static_cast<size_t>(config->cache_size) < ctl_size;
-  CachedColumn working_coboundary;
+  Column working_coboundary;
   working_coboundary.reserve(64);
   CachedColumn merge_scratch;
   merge_scratch.reserve(64);
-  int local_apparent_pairs = 0;
 
   for (uint32_t i = 0; i < ctl_size; ++i) {
     working_coboundary.clear();
@@ -330,8 +244,7 @@ void ComputePairs::compute_pairs_main(vector<Cube> &ctr) {
         auto findWc = recorded_wc.find(j);
         if (findWc != recorded_wc.end()) {
           cache_hit = true;
-          xor_sorted_columns(working_coboundary, findWc->second,
-                             merge_scratch);
+          column_add(working_coboundary, findWc->second, merge_scratch);
         }
       }
       if (!cache_hit) {
@@ -346,16 +259,16 @@ void ComputePairs::compute_pairs_main(vector<Cube> &ctr) {
                 pivot_column_index->insert(cofaces.nextCoface.index, i);
             if (apparent.second) { // inserted
               found_apparent_pair = true;
-              ++local_apparent_pairs;
+              ++num_apparent_pairs;
               break;
             }
             might_be_apparent_pair = false;
           }
         }
-        if (found_apparent_pair)
+        if (found_apparent_pair) {
           break;
-        normalize_column(batch_column);
-        xor_sorted_columns(working_coboundary, batch_column, merge_scratch);
+        }
+        column_add_fresh(working_coboundary, batch_column, merge_scratch);
       }
       pivot = get_pivot(working_coboundary);
       if (pivot.index != NONE) {
@@ -364,37 +277,55 @@ void ComputePairs::compute_pairs_main(vector<Cube> &ctr) {
           j = insert_result.first;
           num_recurse++;
           continue;
-        } else { // new pivot inserted
-          if (num_recurse >= config->min_recursion_to_cache) {
-            add_cache(i, working_coboundary, recorded_wc);
-            if (bounded_cache) {
-              cached_column_idx.push(i);
-              if (cached_column_idx.size() > config->cache_size) {
-                recorded_wc.erase(cached_column_idx.front());
-                cached_column_idx.pop();
-              }
+        }
+        // new pivot inserted
+        if (num_recurse >= config->min_recursion_to_cache) {
+          add_cache(i, working_coboundary, recorded_wc);
+          if (bounded_cache) {
+            cached_column_idx.push(i);
+            if (cached_column_idx.size() > config->cache_size) {
+              recorded_wc.erase(cached_column_idx.front());
+              cached_column_idx.pop();
             }
           }
-          double death = pivot.birth;
-          if (birth != death) {
-            local_wp.emplace_back(
-                WritePairs(dim, ctr[i], pivot, dcg, config->print));
-          }
-          break;
         }
-      } else {
-        if (birth != dcg->threshold) {
+        double death = pivot.birth;
+        if (birth != death) {
           local_wp.emplace_back(
-              WritePairs(dim, birth, dcg->threshold, ctr[i].x(), ctr[i].y(),
-                         ctr[i].z(), ctr[i].w(), 0, 0, 0, 0, config->print));
+              WritePairs(dim, ctr[i], pivot, dcg, config->print));
         }
         break;
       }
+
+      if (birth != dcg->threshold) {
+        local_wp.emplace_back(
+            WritePairs(dim, birth, dcg->threshold, ctr[i].x(), ctr[i].y(),
+                       ctr[i].z(), ctr[i].w(), 0, 0, 0, 0, config->print));
+      }
+      break;
     }
   }
-  num_apparent_pairs += local_apparent_pairs;
 
   wp->insert(wp->end(), local_wp.begin(), local_wp.end());
+}
+
+void ComputePairs::compute_pairs_main(vector<Cube> &ctr) {
+  auto ctl_size = ctr.size();
+  if (config->verbose) {
+    cout << "# columns to reduce: " << ctl_size << endl;
+  }
+
+  if (!pivot_column_index) {
+    pivot_column_index = std::make_unique<DensePivotTable>();
+  }
+  pivot_column_index->reset(dcg, dim + 1);
+
+  int num_apparent_pairs = 0;
+  if (config->vector_working_column) {
+    reduce_columns<CachedColumn>(ctr, ctl_size, num_apparent_pairs);
+  } else {
+    reduce_columns<CubeQue>(ctr, ctl_size, num_apparent_pairs);
+  }
 
   if (config->verbose) {
     cout << "# apparent pairs: " << num_apparent_pairs << endl;
@@ -551,7 +482,7 @@ void ComputePairs::assemble_columns_to_reduce(vector<Cube> &ctr, uint8_t _dim) {
   // V-paired cells from ctr or from the working coboundary is NOT equivalent
   // to xor-ing with a trivial column {tau} when a lower-birth column naturally
   // picks tau up as its pivot.  A correct integration needs a rebuilt Morse
-  // boundary operator over V-paths.  See agents.md section 10.
+  // boundary operator over V-paths.  See improvements.md section 10.
   for (uint8_t m = 0; m < max_m; ++m) {
     for (uint32_t w = 0; w < dcg->aw; ++w) {
       for (uint32_t z = 0; z < dcg->az; ++z) {

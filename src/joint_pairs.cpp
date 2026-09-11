@@ -16,7 +16,7 @@ with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <algorithm>
 #include <vector>
 #include <cstdint>
-#include <algorithm>
+#include <stdexcept>
 #include "cube.h"
 #include "dense_cubical_grids.h"
 #include "coboundary_enumerator.h"
@@ -101,7 +101,7 @@ void JointPairs::joint_pairs_main(vector<Cube>& ctr, int current_dim) {
             static const int8_t dw4d[4] = {0, 0, 0, 1};
 
             const int m = e->m();
-            if (m < 0 || m >= 4) std::exit(-1);
+            if (m < 0 || m >= 4) throw std::logic_error("joint_pairs: invalid 4D edge type");
 
             // neighbor coordinates with strict per-axis bounds check
             const int64_t nx = static_cast<int64_t>(ex) + dx4d[m];
@@ -123,7 +123,7 @@ void JointPairs::joint_pairs_main(vector<Cube>& ctr, int current_dim) {
             static const int8_t dy[13]={0,1,0, 1,-1,-1, 1,-1, 0, 1,-1, 0, 1};
             static const int8_t dz[13]={0,0,1, 0, 0, 1, 1, 1, 1, 1,-1,-1,-1};
             const int m = e->m();
-            if (m < 0 || m >= 13) std::exit(-1);
+            if (m < 0 || m >= 13) throw std::logic_error("joint_pairs: invalid edge type");
 
             const int64_t nx = static_cast<int64_t>(ex) + dx[m];
             const int64_t ny = static_cast<int64_t>(ey) + dy[m];
@@ -188,6 +188,17 @@ void JointPairs::joint_pairs_main(vector<Cube>& ctr, int current_dim) {
     // Handle the base point component for H_0
     if (current_dim == 0) {
         uint32_t bx, by, bz, bw, dx, dy, dz, dw;
+        if (ctr.empty()) {
+            // No edge was below the threshold, so no merge ran and min_birth is
+            // still the sentinel.  The essential class is then born at the
+            // smallest vertex value (e.g. a single-voxel input).
+            for (size_t i = 0; i < dset.birthtime.size(); ++i) {
+                if (dset.birthtime[i] < min_birth) {
+                    min_birth = dset.birthtime[i];
+                    min_idx = i;
+                }
+            }
+        }
         decode(min_idx, bx, by, bz, bw);
         if(config->tconstruction){
             if (bx > 0) bx--;

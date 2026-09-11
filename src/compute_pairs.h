@@ -125,6 +125,9 @@ private:
 public:
   ComputePairs(DenseCubicalGrids *_dcg, vector<WritePairs> &_wp, Config &);
   void compute_pairs_main(vector<Cube> &ctr);
+  template <typename Column>
+  void reduce_columns(vector<Cube> &ctr, size_t ctl_size,
+                      int &num_apparent_pairs);
   void assemble_columns_to_reduce(vector<Cube> &ctr, uint8_t _dim);
   void add_cache(uint32_t i, CachedColumn &wc,
                  unordered_map<uint32_t, CachedColumn> &recorded_wc);

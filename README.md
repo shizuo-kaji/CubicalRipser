@@ -138,6 +138,14 @@ CubicalRipser works on 1D/2D/3D/4D NumPy arrays (dtype convertible to `float64`)
 Both support:
 - `filtration="V"` or `filtration="T"`
 - `maxdim`, `top_dim`, `embedded`, `location`
+- `n_threads` (see [Parallelism](#parallelism))
+
+### Input limits
+- Arrays must be 1D-4D with no zero-length axis.
+- For 3D/4D inputs, and for 2D inputs using `top_dim=True` or
+  `representatives=True`, each axis must be at most 32760 — cell coordinates are
+  packed into 15 bits internally. Longer axes raise `ValueError`. Plain 1D/2D
+  computations use a wider encoding and have no such limit.
 
 Example (V-construction):
 
@@ -167,6 +175,33 @@ See [Creator and Destroyer Cells](#creator-and-destroyer-cells) for interpretati
 Notes:
 - `computePH(...)` and CLI may represent essential deaths as `DBL_MAX`.
 - `compute_ph(...)` converts essential deaths to `np.inf`.
+
+### Parallelism
+
+The Python binding releases the GIL for the whole computation, so several
+images can be processed concurrently with plain threads:
+
+```python
+from concurrent.futures import ThreadPoolExecutor
+import cripser
+
+with ThreadPoolExecutor(8) as pool:
+    results = list(pool.map(lambda a: cripser.compute_ph(a, maxdim=2), volumes))
+```
+
+This is the most effective way to use multiple cores: on a 32-core machine,
+eight 64³ volumes go from 2594 ms sequentially to 442 ms (5.5x).
+
+Within a single computation, `n_threads` parallelises the grid scans and sorts:
+
+- `n_threads=1` (default) — sequential.
+- `n_threads=0` — auto (hardware concurrency, or `CRIPSER_NUM_THREADS`).
+- `n_threads=k` — at most `k` workers.
+
+The result is identical for every value. Today this speeds up the 2D path by
+about 1.5x (2048² random: 505 ms → 325 ms); 3D/4D are dominated by the column
+reduction, which is not threaded, so they see no change. Leave it at `1` when
+you already parallelise over images yourself, to avoid oversubscription.
 
 ### GUDHI conversion helpers
 ```python
@@ -281,6 +316,7 @@ T-construction:
 - `--algorithm, -a link_find|compute_pairs`: 0-dimensional PH method
 - `--cache_size, -c <n>`: cache limit
 - `--min_recursion_to_cache, -mc <n>`: recursion threshold for caching
+- `--threads <n>`: worker threads for grid scans and sorts (`1` = sequential, default; `0` = auto). Output is identical either way.
 - `--output, -o <FILE>`: write `.csv`, `.npy`, or DIPHA-style persistence binary
 - `--verbose, -v`
 
@@ -548,6 +584,16 @@ The following notes are based on limited understanding and tests and may be inco
   - V-construction
 
 ## Release Notes
+- **v0.0.36**:
+  - The Python binding now releases the GIL during the computation, so
+    `ThreadPoolExecutor` over many images scales across cores (previously it did not).
+  - New `n_threads` argument (`--threads` on the CLI) for intra-computation
+    threading; results are unchanged for any value.
+  - **Fixed**: 3D/4D inputs with an axis longer than 32767 segfaulted, and axes
+    just over that limit silently reported wrong coordinates. Such shapes now
+    raise `ValueError`; zero-length axes are rejected too.
+  - **Fixed**: a single-voxel 3D/4D input reported `birth = DBL_MAX` instead of
+    the voxel value.
 - **v0.0.35**: Added support for computation of cycle representatives (homology cycles) for each persistence interval.
 - **v0.0.34**: Switched the Python binding layer from pybind11 to [nanobind](https://github.com/wjakob/nanobind) so a single `cp312-abi3` wheel covers Python 3.12+. **Python 3.8 is dropped** (nanobind requires ≥ 3.9).
 - **v0.0.31**: Changed module structure (hopefully, backward compatible)

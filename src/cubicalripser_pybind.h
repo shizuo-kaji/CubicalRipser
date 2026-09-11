@@ -52,7 +52,8 @@ inline nb::object computePH(
     bool top_dim = false,
     bool embedded = false,
     const std::string &location = "yes",
-    bool representatives = false)
+    bool representatives = false,
+    int n_threads = 1)
 {
     // we ignore "location" argument
     if (representatives && top_dim) {
@@ -63,6 +64,7 @@ inline nb::object computePH(
     Config config;
     config.format = NUMPY;
     config.representatives = representatives;
+    config.num_threads = n_threads;
 
     vector<WritePairs> writepairs; // (dim birth death x y z)
     writepairs.reserve(1000);
@@ -97,6 +99,14 @@ inline nb::object computePH(
     } else {
         config.embedded = embedded;
     }
+
+    // The grid build and the PH computation touch nothing but the raw input
+    // buffer and C++ state, so the GIL can be dropped for the whole of it.  The
+    // caller's frame keeps `img` alive, so `img.data()` stays valid.  Without
+    // this, threaded batch processing over many images serialises completely.
+    // It must be re-acquired before any Python object is created below.
+    {
+    nb::gil_scoped_release no_gil;
 
     dcg->gridFromArray(img.data(), embedded, fortran_order);
     dcg->finalisePadding();
@@ -152,6 +162,7 @@ inline nb::object computePH(
             }
         }
     }
+    } // GIL re-acquired here
 
     // result
     // determine shift between dcg and the voxel coordinates
@@ -198,8 +209,10 @@ inline nb::object computePH(
     // this opt-in branch performs direct boundary reduction with column
     // tracking, which is what supplies homology (rather than cohomology)
     // cycles.
-    const auto representative_cycles =
-        compute_homology_representatives(dcg.get(), config);
+    const auto representative_cycles = [&] {
+        nb::gil_scoped_release no_gil;
+        return compute_homology_representatives(dcg.get(), config);
+    }();
 
     struct RepresentativeKey {
         uint8_t dim;

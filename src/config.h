@@ -29,6 +29,11 @@ struct Config {
 	bool vector_working_column = false; // use sorted-vector working columns even for 4D H1
 	bool explicit_clearing = true; // compress pivots to a bitset before clearing next-dim columns
 	bool representatives = false; // direct homology reduction is requested by the Python API
+	// Worker threads for the parallelisable phases (grid scans and sorts).
+	// 1 = sequential (default: identical to the historical code path and safe to
+	// nest inside a caller that already parallelises over images).
+	// 0 = auto (hardware concurrency, or CRIPSER_NUM_THREADS).
+	int num_threads = 1;
 };
 
 #endif

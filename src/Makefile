@@ -1,7 +1,8 @@
 # Configurable settings (override on command line, e.g. make MODE=debug)
 MODE        ?= release
 CXX         ?= clang++
-CXXSTD      ?= c++20
+# Match CMakeLists.txt, which is the canonical build.
+CXXSTD      ?= c++17
 
 # Architectures: set to "arm64", "x86_64", or "arm64 x86_64" for universal
 ARCHS       ?= $(shell uname -m)
@@ -33,7 +34,7 @@ LDFLAGS     = $(ARCHFLAGS)
 TARGET1     = cubicalripser
 TARGET2     = tcubicalripser
 
-SRCS_COMMON = coboundary_enumerator.cpp joint_pairs.cpp compute_pairs.cpp ph_2d.cpp
+SRCS_COMMON = coboundary_enumerator.cpp joint_pairs.cpp compute_pairs.cpp ph_2d.cpp representatives.cpp
 SRCS1       = cubicalripser.cpp dense_cubical_grids.cpp $(SRCS_COMMON)
 SRCS2       = cubicalripser.cpp dense_cubical_grids_T.cpp $(SRCS_COMMON)
 
@@ -64,7 +65,11 @@ $(OBJDIR)/%.cpp.o: %.cpp | dirs
 # Shorter suffix-style alternative (maps %.cpp to build/%.cpp.o)
 %.o: ;
 
--include $(DEPS)
+# $(wildcard ...): without it, make treats a not-yet-generated .d as a target to
+# remake and falls through to the built-in "link an executable from %.o" rule,
+# printing spurious "no such file or directory: build/<x>.cpp.d.o" errors on a
+# clean build.
+-include $(wildcard $(DEPS))
 
 clean:
 	rm -rf $(OBJDIR) $(TARGET1) $(TARGET2)

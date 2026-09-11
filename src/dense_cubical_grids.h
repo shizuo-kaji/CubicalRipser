@@ -21,6 +21,7 @@ with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <memory>
 #include <array>
 #include <cstddef>
+#include <stdexcept>
 
 #include "config.h"
 #include "cube.h"
@@ -285,8 +286,43 @@ public:
 		}
 	}
 
+	// True when the computation will go through the planar fast path in
+	// ph_2d.cpp, which uses its own 31-bit packing and so is not bound by the
+	// 15-bit Cube encoding.  Mirrors the guards in compute_PH_2d() and its
+	// callers.  `representatives` forces the generic path as well, since
+	// compute_homology_representatives() builds Cubes for every cell.
+	bool usesPlanarFastPath() const {
+		return dim <= 2 && az == 1 && aw == 1 &&
+		       config->method == LINKFIND && !config->representatives;
+	}
+
+	// Reject degenerate empty axes, and shapes the 15-bit cell encoding in Cube
+	// cannot represent.  Every entry point (CLI loadImage and the Python binding
+	// alike) funnels through gridFromArray, so this single check covers them all
+	// and runs once per computation.
+	void validateShape() const {
+		const uint32_t axes[4] = {ax, ay, az, aw};
+		const bool cube_encoded = !usesPlanarFastPath();
+		for (int i = 0; i < 4; ++i) {
+			if (axes[i] == 0) {
+				throw std::invalid_argument(
+					"input axis " + std::to_string(i) +
+					" has length 0; every axis must be non-empty");
+			}
+			if (cube_encoded && axes[i] > CUBE_MAX_AXIS) {
+				throw std::invalid_argument(
+					"input axis " + std::to_string(i) + " has length " +
+					std::to_string(axes[i]) + ", which exceeds the maximum " +
+					std::to_string(CUBE_MAX_AXIS) +
+					" supported for this computation (the cell coordinate "
+					"encoding uses 15 bits per axis)");
+			}
+		}
+	}
+
 	// construct volume with boundary
 	void gridFromArray(const double *arr, bool embedded, bool fortran_order){
+		validateShape();
 		img_x = ax;
 		img_y = ay;
 		img_z = az;

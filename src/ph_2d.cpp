@@ -27,6 +27,7 @@
 #include "config.h"
 #include "cube.h"
 #include "dense_cubical_grids.h"
+#include "parallel.h"
 #include "write_pairs.h"
 
 namespace {
@@ -101,33 +102,51 @@ bool detect_counting_sort_limit(const std::vector<SortKey>& keys, uint32_t& max_
     return true;
 }
 
-void counting_sort_by_t(std::vector<SortKey>& keys, uint32_t max_value) {
+void counting_sort_by_t(std::vector<SortKey>& keys, uint32_t max_value,
+                        unsigned workers) {
     const size_t N = keys.size();
     if (N <= 1) return;
 
-    const size_t bucket_count = static_cast<size_t>(max_value) + 1;
-    std::vector<uint32_t> counts(bucket_count, 0u);
-    for (const auto& key : keys) {
-        uint32_t bucket = 0;
-        const bool ok = try_uint_bucket(key.t, max_value, bucket);
-        (void)ok;
-        counts[bucket]++;
-    }
-
-    uint32_t sum = 0;
-    for (size_t i = 0; i < bucket_count; ++i) {
-        const uint32_t c = counts[i];
-        counts[i] = sum;
-        sum += c;
-    }
-
+    const unsigned bucket_count = max_value + 1u;
     std::vector<SortKey> tmp(N);
-    for (const auto& key : keys) {
-        uint32_t bucket = 0;
-        const bool ok = try_uint_bucket(key.t, max_value, bucket);
-        (void)ok;
-        tmp[counts[bucket]++] = key;
+    const SortKey* src = keys.data();
+    SortKey* dst = tmp.data();
+
+    if (workers <= 1) {
+        std::vector<uint32_t> counts(bucket_count, 0u);
+        for (size_t i = 0; i < N; ++i) {
+            uint32_t bucket = 0;
+            const bool ok = try_uint_bucket(src[i].t, max_value, bucket);
+            (void)ok;
+            counts[bucket]++;
+        }
+        uint32_t sum = 0;
+        for (unsigned i = 0; i < bucket_count; ++i) {
+            const uint32_t c = counts[i];
+            counts[i] = sum;
+            sum += c;
+        }
+        for (size_t i = 0; i < N; ++i) {
+            uint32_t bucket = 0;
+            const bool ok = try_uint_bucket(src[i].t, max_value, bucket);
+            (void)ok;
+            dst[counts[bucket]++] = src[i];
+        }
+        keys.swap(tmp);
+        return;
     }
+
+    std::vector<uint32_t> histogram;
+    cubicalripser::radix_pass(
+        N, bucket_count, workers, histogram,
+        [src, max_value](size_t i) {
+            uint32_t bucket = 0;
+            const bool ok = try_uint_bucket(src[i].t, max_value, bucket);
+            (void)ok;
+            return bucket;
+        },
+        [src, dst](size_t i, uint32_t pos) { dst[pos] = src[i]; });
+
     keys.swap(tmp);
 }
 
@@ -136,13 +155,13 @@ void counting_sort_by_t(std::vector<SortKey>& keys, uint32_t max_value) {
 //
 // Six passes of 11-bit digits cover 66 bits (more than the 64 needed) and
 // keep each per-pass histogram small enough (8 KiB) to live in L1.
-void radix_sort_by_t(std::vector<SortKey>& keys) {
+void radix_sort_by_t(std::vector<SortKey>& keys, unsigned workers) {
     const size_t N = keys.size();
     if (N <= 1) return;
 
     constexpr int RADIX_BITS = 11;
     constexpr int N_PASSES = 6;  // even, so output ends back in `keys`
-    constexpr uint64_t BUCKETS = 1ULL << RADIX_BITS;
+    constexpr unsigned BUCKETS = 1u << RADIX_BITS;
     constexpr uint64_t MASK = BUCKETS - 1;
 
     std::vector<SortKey> tmp(N);
@@ -154,27 +173,58 @@ void radix_sort_by_t(std::vector<SortKey>& keys) {
     std::vector<uint64_t> rk_a(N), rk_b(N);
     uint64_t* ka = rk_a.data();
     uint64_t* kb = rk_b.data();
-    for (size_t i = 0; i < N; ++i) ka[i] = double_to_radix(a[i].t);
+    cubicalripser::parallel_blocks(
+        N, workers, [&](unsigned, size_t begin, size_t end) {
+            for (size_t i = begin; i < end; ++i) ka[i] = double_to_radix(a[i].t);
+        });
 
-    uint32_t hist[BUCKETS];
-    for (int pass = 0; pass < N_PASSES; ++pass) {
-        const int shift = pass * RADIX_BITS;
-        std::memset(hist, 0, sizeof(hist));
-        for (size_t i = 0; i < N; ++i) ++hist[(ka[i] >> shift) & MASK];
-        uint32_t sum = 0;
-        for (uint64_t i = 0; i < BUCKETS; ++i) {
-            uint32_t c = hist[i];
-            hist[i] = sum;
-            sum += c;
+    if (workers <= 1) {
+        // Kept verbatim: routing the single-threaded case through the generic
+        // radix_pass helper measured 1.10x slower on 2048^2/4096^2 (the helper
+        // reads the radix key twice per element, once for the digit and once
+        // for the copy).  The default must not pay for the threaded path.
+        uint32_t hist[BUCKETS];
+        for (int pass = 0; pass < N_PASSES; ++pass) {
+            const int shift = pass * RADIX_BITS;
+            std::memset(hist, 0, sizeof(hist));
+            for (size_t i = 0; i < N; ++i) ++hist[(ka[i] >> shift) & MASK];
+            uint32_t sum = 0;
+            for (unsigned i = 0; i < BUCKETS; ++i) {
+                uint32_t c = hist[i];
+                hist[i] = sum;
+                sum += c;
+            }
+            for (size_t i = 0; i < N; ++i) {
+                const uint64_t bk = (ka[i] >> shift) & MASK;
+                const uint32_t pos = hist[bk]++;
+                b[pos] = a[i];
+                kb[pos] = ka[i];
+            }
+            std::swap(a, b);
+            std::swap(ka, kb);
         }
-        for (size_t i = 0; i < N; ++i) {
-            const uint64_t bk = (ka[i] >> shift) & MASK;
-            const uint32_t pos = hist[bk]++;
-            b[pos] = a[i];
-            kb[pos] = ka[i];
+    } else {
+        std::vector<uint32_t> histogram;
+        for (int pass = 0; pass < N_PASSES; ++pass) {
+            const int shift = pass * RADIX_BITS;
+            // Capture the buffer pointers by value; a by-reference capture makes
+            // the compiler reload them from the stack on every element.
+            const SortKey* src = a;
+            SortKey* dst = b;
+            const uint64_t* ksrc = ka;
+            uint64_t* kdst = kb;
+            cubicalripser::radix_pass(
+                N, BUCKETS, workers, histogram,
+                [ksrc, shift](size_t i) {
+                    return static_cast<unsigned>((ksrc[i] >> shift) & MASK);
+                },
+                [src, dst, ksrc, kdst](size_t i, uint32_t pos) {
+                    dst[pos] = src[i];
+                    kdst[pos] = ksrc[i];
+                });
+            std::swap(a, b);
+            std::swap(ka, kb);
         }
-        std::swap(a, b);
-        std::swap(ka, kb);
     }
     // Even number of passes => sorted output is in `keys.data()` already.
     if (a != keys.data()) {
@@ -182,15 +232,15 @@ void radix_sort_by_t(std::vector<SortKey>& keys) {
     }
 }
 
-void sort_keys_by_t(std::vector<SortKey>& keys) {
+void sort_keys_by_t(std::vector<SortKey>& keys, unsigned workers) {
     if (keys.size() <= 1) return;
 
     uint32_t counting_limit = 0u;
     if (detect_counting_sort_limit(keys, counting_limit)) {
-        counting_sort_by_t(keys, counting_limit);
+        counting_sort_by_t(keys, counting_limit, workers);
         return;
     }
-    radix_sort_by_t(keys);
+    radix_sort_by_t(keys, workers);
 }
 
 } // namespace
@@ -215,6 +265,13 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
     const uint32_t VW = one_dim ? 1u : (tcon ? (IW + 1u) : IW);
     const uint32_t SH = one_dim ? 0u : (tcon ? IH : (IH > 0 ? IH - 1u : 0u));
     const uint32_t SW = one_dim ? 0u : (tcon ? IW : (IW > 0 ? IW - 1u : 0u));
+
+    // One worker count for the whole routine, sized from the pixel count.  All
+    // threaded phases below are index-disjoint writes or a stable sort whose
+    // partitioning does not depend on the worker count, so the emitted pairs
+    // are identical for any value (1 keeps the original sequential code paths).
+    const unsigned workers = cubicalripser::worker_count(
+        config.num_threads, static_cast<size_t>(IH) * IW, size_t{1} << 16);
 
     std::vector<double> pix_storage;
     PlanarDenseView pix;
@@ -459,19 +516,40 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
         }
     };
 
+    // Raw pointers captured by value, not the vectors by reference: a
+    // by-reference capture stops the compiler keeping the base addresses in
+    // registers across the loop.
     std::vector<SortKey> keys(edges.size());
-    for (size_t i = 0; i < edges.size(); ++i) {
-        keys[i].t = edges[i].t;
-        keys[i].idx = static_cast<uint32_t>(i);
+    {
+        SortKey* key_out = keys.data();
+        const EdgeRec* edge_in = edges.data();
+        cubicalripser::parallel_blocks(
+            edges.size(), workers,
+            [key_out, edge_in](unsigned, size_t begin, size_t end) {
+                for (size_t i = begin; i < end; ++i) {
+                    key_out[i].t = edge_in[i].t;
+                    key_out[i].idx = static_cast<uint32_t>(i);
+                }
+            });
     }
-    sort_keys_by_t(keys);
+    sort_keys_by_t(keys, workers);
     {
         std::vector<EdgeRec> sorted_edges(edges.size());
         std::vector<uint64_t> sorted_coords(edges.size());
-        for (size_t i = 0; i < edges.size(); ++i) {
-            sorted_edges[i] = edges[keys[i].idx];
-            sorted_coords[i] = ecoord[keys[i].idx];
-        }
+        EdgeRec* edge_out = sorted_edges.data();
+        uint64_t* coord_out = sorted_coords.data();
+        const EdgeRec* edge_in = edges.data();
+        const uint64_t* coord_in = ecoord.data();
+        const SortKey* key_in = keys.data();
+        cubicalripser::parallel_blocks(
+            edges.size(), workers,
+            [edge_out, coord_out, edge_in, coord_in, key_in](
+                unsigned, size_t begin, size_t end) {
+                for (size_t i = begin; i < end; ++i) {
+                    edge_out[i] = edge_in[key_in[i].idx];
+                    coord_out[i] = coord_in[key_in[i].idx];
+                }
+            });
         edges.swap(sorted_edges);
         ecoord.swap(sorted_coords);
     }

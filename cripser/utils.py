@@ -67,6 +67,7 @@ def compute_ph(
     embedded: bool = False,
     location: str = "yes",
     representatives: bool = False,
+    n_threads: int = 1,
     inf_cutoff: bool = True,
 ) -> np.ndarray | tuple[np.ndarray, list[list[list[int]]]]:
     """Compute persistent homology using `cripser` or `tcripser`.
@@ -77,6 +78,11 @@ def compute_ph(
     - representatives: if ``True``, also return F₂ homology-cycle
       representatives aligned with the rows of the persistence table; it
       cannot be combined with ``top_dim=True``
+    - n_threads: worker threads for the parallelisable phases. ``1`` (default)
+      is sequential; ``0`` means auto (hardware concurrency, overridable with
+      the ``CRIPSER_NUM_THREADS`` environment variable). The result is
+      identical for every value. Leave it at ``1`` when you already parallelise
+      over images yourself, since the GIL is released during the computation.
     - inf_cutoff: value to use as cutoff for detecting DBL_MAX (default is _INF_CUTOFF)
 
     Returns
@@ -91,24 +97,21 @@ def compute_ph(
         raise ValueError("Expected a 1D-4D array")
     if not np.issubdtype(arr.dtype, np.number):
         raise TypeError("Expected a numeric numpy array")
-    #mod = importlib.import_module(module)
+    # Convert here rather than letting nanobind do it implicitly: its conversion
+    # also forces C-order, which would discard the Fortran-contiguous fast path.
+    if arr.dtype != np.float64:
+        arr = arr.astype(np.float64)
+    kwargs = dict(
+        maxdim=maxdim,
+        top_dim=top_dim,
+        embedded=embedded,
+        location=location,
+        representatives=representatives,
+        n_threads=n_threads,
+    )
     if filtration.upper() == "T":
-        kwargs = dict(
-            maxdim=maxdim,
-            top_dim=top_dim,
-            embedded=embedded,
-            location=location,
-            representatives=representatives,
-        )
         out = computePH_T(arr, **kwargs)
     else:
-        kwargs = dict(
-            maxdim=maxdim,
-            top_dim=top_dim,
-            embedded=embedded,
-            location=location,
-            representatives=representatives,
-        )
         out = computePH(arr, **kwargs)
     cycles = None
     if representatives:
@@ -184,15 +187,13 @@ def to_gudhi_persistence(ph: np.ndarray) -> List[Tuple[int, Tuple[float, float]]
     a = np.asarray(ph)
     if a.ndim != 2 or a.shape[1] < 3:
         raise ValueError("Expected (n, 9) or at least (n, 3) array from computePH")
-    out: List[Tuple[int, Tuple[float, float]]] = []
-    for row in a:
-        dim = int(row[0])
-        birth = float(row[1])
-        death = float(row[2])
-        if death >= _INF_CUTOFF:
-            death = float("inf")
-        out.append((dim, (birth, death)))
-    return out
+    dims = a[:, 0].astype(int, copy=False)
+    births = a[:, 1].astype(float, copy=False)
+    deaths = np.where(a[:, 2] >= _INF_CUTOFF, np.inf, a[:, 2])
+    return [
+        (dim, (birth, death))
+        for dim, birth, death in zip(dims.tolist(), births.tolist(), deaths.tolist())
+    ]
 
 
 def group_by_dim(ph: np.ndarray) -> List[np.ndarray]:

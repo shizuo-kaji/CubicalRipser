@@ -5,6 +5,10 @@ from __future__ import annotations
 from typing import Any, Literal, Sequence
 
 import numpy as np
+
+# Pairs per block when accumulating persistence-image kernels. Diagrams at or
+# below this size are processed in a single block, so their result is unchanged.
+_PI_CHUNK = 16384
 try:
     import torch
 except ModuleNotFoundError:
@@ -264,7 +268,8 @@ def _persistence_image_numpy(
 
     valid = (
         dim_finite_work
-        & np.array([int(d) in dim_to_index for d in dims_work], dtype=bool)
+        & np.isin(dims_work, np.fromiter(dim_to_index, dtype=np.int64,
+                                         count=len(dim_to_index)))
         & np.isfinite(births_work)
         & np.isfinite(lifetimes_work)
     )
@@ -280,12 +285,22 @@ def _persistence_image_numpy(
             mask = dims_v == int(dim)
             if not np.any(mask):
                 continue
-            births_c = births_v[mask][:, None, None]
-            lifes_c = lifetimes_v[mask][:, None, None]
-            sqdist = (births_c - birth_grid) ** 2 + (lifes_c - life_grid) ** 2
-            kernels = np.exp(-0.5 * sqdist / sigma_sq)
-            weights = np.maximum(lifetimes_v[mask], 0.0) ** float(weight_power)
-            image[channel] = np.sum(weights[:, None, None] * kernels, axis=0)
+            births_c = births_v[mask]
+            lifes_c = lifetimes_v[mask]
+            weights_c = np.maximum(lifes_c, 0.0) ** float(weight_power)
+            # The kernel stack is (n_pairs, n_life_bins, n_birth_bins), so a
+            # large diagram would materialise gigabytes at once.  Diagrams up to
+            # _PI_CHUNK pairs still go through in one block, keeping the
+            # floating-point summation order identical to before.
+            total = np.zeros((n_life_bins, n_birth_bins), dtype=np.float64)
+            for start in range(0, births_c.shape[0], _PI_CHUNK):
+                stop = start + _PI_CHUNK
+                b_blk = births_c[start:stop][:, None, None]
+                l_blk = lifes_c[start:stop][:, None, None]
+                sqdist = (b_blk - birth_grid) ** 2 + (l_blk - life_grid) ** 2
+                kernels = np.exp(-0.5 * sqdist / sigma_sq)
+                total += np.sum(weights_c[start:stop][:, None, None] * kernels, axis=0)
+            image[channel] = total
 
     if normalize:
         sums = image.sum(axis=(1, 2), keepdims=True)
@@ -636,7 +651,8 @@ def create_PH_histogram_volume(
     life_edges = _interior_edges((l_min, l_max), n_life_bins)
 
     dims = work[:, 0].astype(np.int64, copy=False)
-    in_dim = np.array([d in dim_to_index for d in dims], dtype=bool)
+    selected_dims = np.fromiter(dim_to_index, dtype=np.int64, count=len(dim_to_index))
+    in_dim = np.isin(dims, selected_dims)
 
     coords = work[:, coord_slice][:, :spatial_ndim].astype(np.int64, copy=False)
     in_bounds = np.ones((coords.shape[0],), dtype=bool)
@@ -657,7 +673,11 @@ def create_PH_histogram_volume(
         lifetimes_v = work[valid, 2] - work[valid, 1]
         coords_v = coords[valid]
 
-        dim_idx = np.array([dim_to_index[int(d)] for d in dims_v], dtype=np.int64)
+        # dims_v is already restricted to the selected dimensions, so a small
+        # lookup table replaces the per-pair Python dict access.
+        dim_lut = np.zeros(int(selected_dims.max()) + 1, dtype=np.int64)
+        dim_lut[selected_dims] = np.arange(len(selected_dims), dtype=np.int64)
+        dim_idx = dim_lut[dims_v]
         life_idx = np.searchsorted(life_edges, lifetimes_v, side="left")
         birth_idx = np.searchsorted(birth_edges, births_v, side="left")
 
@@ -671,7 +691,12 @@ def create_PH_histogram_volume(
             life_idx,
             birth_idx,
         )
-        np.add.at(hist, indices, 1)
+        # np.add.at is an unbuffered scalar loop. Collapsing to flat indices and
+        # accumulating per unique slot is the same result, vectorised, and it
+        # allocates O(number of pairs) rather than a second full histogram.
+        flat_indices = np.ravel_multi_index(indices, hist.shape)
+        unique_slots, slot_counts = np.unique(flat_indices, return_counts=True)
+        hist.reshape(-1)[unique_slots] += slot_counts
 
     volume = np.moveaxis(hist.reshape(*spatial_shape, -1), -1, 0).astype(dtype, copy=False)
 
