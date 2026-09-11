@@ -189,19 +189,11 @@ with ThreadPoolExecutor(8) as pool:
     results = list(pool.map(lambda a: cripser.compute_ph(a, maxdim=2), volumes))
 ```
 
-This is the most effective way to use multiple cores: on a 32-core machine,
-eight 64³ volumes go from 2594 ms sequentially to 442 ms (5.5x).
-
 Within a single computation, `n_threads` parallelises the grid scans and sorts:
 
 - `n_threads=1` (default) — sequential.
 - `n_threads=0` — auto (hardware concurrency, or `CRIPSER_NUM_THREADS`).
 - `n_threads=k` — at most `k` workers.
-
-The result is identical for every value. Today this speeds up the 2D path by
-about 1.5x (2048² random: 505 ms → 325 ms); 3D/4D are dominated by the column
-reduction, which is not threaded, so they see no change. Leave it at `1` when
-you already parallelise over images yourself, to avoid oversubscription.
 
 ### GUDHI conversion helpers
 ```python
@@ -303,7 +295,6 @@ T-construction:
 ```bash
 ./build/tcubicalripser --maxdim 3 --output volume_ph.csv sample/bonsai128.npy
 ```
-
 
 
 ### Common options (`cubicalripser --help`)
@@ -461,13 +452,7 @@ existing optimized cohomology/coboundary reduction without allocating or
 tracking representative chains. It cannot be combined with `top_dim=True`,
 which uses a separate Alexander-duality shortcut.
 
-## Deep Learning Integration
-
-The original project examples include lifetime-enhanced and histogram-style topological channels for CNNs.
-
-Historical note: older documentation referenced `demo/stackPH.py`; equivalent functionality is now available in the Python vectorization APIs.
-
-Example using current APIs:
+## Vectorization
 
 ```python
 import numpy as np
@@ -494,88 +479,31 @@ hist = cripser.create_PH_histogram_volume(
 )
 ```
 
-For practical CNN examples, see [HomologyCNN](https://github.com/shizuo-kaji/HomologyCNN).
-
-## Timing Comparisons
-
-Timing and correctness comparison now use `demo/compare_gudhi.py`.
-
-CLI timing example:
-
-```bash
-python demo/compare_gudhi.py \
-  --methods cli \
-  --sample-datasets sample/bonsai128.npy \
-  --cubicalripser-bin build/cubicalripser \
-  --tcubicalripser-bin build/tcubicalripser \
-  --runs 5 --warmup 1 \
-  --csv-out demo/logs/timing_bonsai128.csv
-```
-
-This writes:
-- `run` rows: one per timed iteration (`elapsed_seconds`)
-- `summary` rows: aggregate metrics per `(binary, dataset)`
-- statistics: `mean_seconds`, `std_seconds`, `min_seconds`, `max_seconds`
-- metadata: `timestamp_utc`, `git_commit`, `maxdim`, `binary_path`, `input_path`
-
-Reference comparison example:
-
-```bash
-python demo/compare_gudhi.py \
-  --methods cli \
-  --sample-datasets bonsai128 bonsai256 4d_hole \
-  --cubicalripser-bin build/cubicalripser \
-  --tcubicalripser-bin build/tcubicalripser \
-  --reference-csv demo/logs/reference_timing.csv \
-  --max-slowdown 1.10 \
-  --fail-on-regression \
-  --csv-out demo/logs/timing_current_vs_reference.csv
-```
-
-## Testing and Regression Checks
-
-Run Python tests:
-
-```bash
-pytest
-```
-
-Timing regression against a saved reference:
-
-```bash
-python demo/compare_gudhi.py \
-  --methods cli \
-  --sample-datasets bonsai128 bonsai256 4d_hole \
-  --cubicalripser-bin build/cubicalripser \
-  --tcubicalripser-bin build/tcubicalripser \
-  --reference-csv demo/logs/reference_timing.csv \
-  --runs 3 --warmup 1 \
-  --csv-out demo/logs/timing_current_vs_reference.csv
-```
-
-More details: `demo/COMPARE.md`.
 
 ## Other Software for Cubical Complex PH
-The following notes are based on limited understanding and tests and may be incomplete.
+The following notes are based on our limited understanding and tests and may be incomplete.
 
 - [Cubicle](https://bitbucket.org/hubwag/cubicle/src/master/) by Hubert Wagner
-  - V-construction
-  - parallelized algorithms can be faster on multicore machines
-  - chunked input handling can reduce memory usage
+  - T-construction
+  - slices the volume, simplifies each slice in parallel with discrete Morse
+    theory, then reduces a single global boundary matrix
+  - streams slices through external memory, so volumes larger than RAM can be
+    processed
+  - the choice for very large volumes, and whenever memory is the binding constraint
+  - input is a raw binary file, 8-bit by default (other element types need a recompile)
 
 - [HomcCube](https://i-obayashi.info/software.html) by Ippei Obayashi
   - V-construction
-  - integrated into HomCloud
+  - integrated into HomCloud, which provides a full TDA workflow around it
 
 - [DIPHA](https://github.com/DIPHA/dipha) by Ulrich Bauer and Michael Kerber
   - V-construction
-  - MPI-parallelized for cluster use
-  - commonly used; memory footprint can be relatively large
+  - MPI-parallelized; the choice when a compute cluster is available
 
 - [GUDHI](https://gudhi.inria.fr/) (INRIA)
   - V- and T-construction in arbitrary dimensions
-  - strong documentation and usability
-  - generally emphasizes usability over raw performance
+  - extensive documentation, and a broad TDA library beyond cubical complexes
+  - the choice for dimensions above 4, or when the surrounding toolkit is useful
 
 - [diamorse](https://github.com/AppliedMathematicsANU/diamorse)
   - V-construction
@@ -585,15 +513,10 @@ The following notes are based on limited understanding and tests and may be inco
 
 ## Release Notes
 - **v0.0.36**:
-  - The Python binding now releases the GIL during the computation, so
-    `ThreadPoolExecutor` over many images scales across cores (previously it did not).
-  - New `n_threads` argument (`--threads` on the CLI) for intra-computation
-    threading; results are unchanged for any value.
-  - **Fixed**: 3D/4D inputs with an axis longer than 32767 segfaulted, and axes
-    just over that limit silently reported wrong coordinates. Such shapes now
-    raise `ValueError`; zero-length axes are rejected too.
-  - **Fixed**: a single-voxel 3D/4D input reported `birth = DBL_MAX` instead of
-    the voxel value.
+  - The Python binding now releases the GIL during the computation, so　`ThreadPoolExecutor` over many images scales across cores.
+  - New `n_threads` argument (`--threads` on the CLI) for intra-computation threading.
+  - Fix: 3D/4D inputs with an axis longer than 32767 segfaulted. Such shapes now raise `ValueError`.
+  - Fix: a single-voxel 3D/4D input reported `birth = DBL_MAX` instead of the voxel value.
 - **v0.0.35**: Added support for computation of cycle representatives (homology cycles) for each persistence interval.
 - **v0.0.34**: Switched the Python binding layer from pybind11 to [nanobind](https://github.com/wjakob/nanobind) so a single `cp312-abi3` wheel covers Python 3.12+. **Python 3.8 is dropped** (nanobind requires ≥ 3.9).
 - **v0.0.31**: Changed module structure (hopefully, backward compatible)
