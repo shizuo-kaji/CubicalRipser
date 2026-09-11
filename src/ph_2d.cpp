@@ -215,7 +215,7 @@ void radix_sort_by_t(std::vector<SortKey>& keys, unsigned workers) {
             uint64_t* kdst = kb;
             cubicalripser::radix_pass(
                 N, BUCKETS, workers, histogram,
-                [ksrc, shift](size_t i) {
+                [ksrc, shift, MASK](size_t i) {
                     return static_cast<unsigned>((ksrc[i] >> shift) & MASK);
                 },
                 [src, dst, ksrc, kdst](size_t i, uint32_t pos) {
