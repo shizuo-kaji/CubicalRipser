@@ -14,7 +14,7 @@ differentiable PyTorch wrapper. Two CLI binaries (`cubicalripser`, `tcubicalrips
 built from the same C++ core via CMake.
 
 This is numerical/algorithmic infrastructure, not application code: it is used inside
-research pipelines and downstream libraries (see README "Deep Learning Integration"),
+research pipelines and downstream libraries (see [PyTorch integration](docs/torch.md)),
 often on large volumes (hundreds of MB+ arrays). **Correctness of the persistence
 computation and its performance characteristics are the product.**
 
@@ -25,12 +25,12 @@ These apply to any change touching the C++ core (`src/`), the pybind/nanobind gl
 
 1. **Do not silently change numerical/algorithmic behavior.** Persistence pairs, birth/death
    values, creator/destroyer coordinates, and cycle representatives have a precise, documented
-   meaning (see README "Creator and Destroyer Cells", "V and T Constructions"). If a change
+   meaning (see [output semantics](docs/concepts.md)). If a change
    alters any output for existing tests or sample data, that is a regression unless it is the
    explicit goal of the task — flag it explicitly, don't let it pass quietly.
 2. **Never regress speed or memory usage.** This library exists because it is faster and
-   leaner than the general-purpose alternatives it's benchmarked against (see README
-   "Other Software for Cubical Complex PH"). Before proposing or landing a change to hot code:
+   leaner than the general-purpose alternatives it's benchmarked against
+   (see [related software](docs/related-software.md)). Before proposing or landing a change to hot code:
    - Understand the current complexity/allocation pattern (caching in `compute_pairs.cpp`,
      union-find in `union_find.h`, radix sort in `radix_sort.h`, the dense grid representation
      in `dense_cubical_grids*.cpp`) before changing it.
@@ -48,8 +48,9 @@ These apply to any change touching the C++ core (`src/`), the pybind/nanobind gl
    NumPy arrays; v0.0.15 fixed a real correctness bug from assuming `C_CONTIGUOUS`. Any code
    touching raw buffers must handle both layouts (or explicitly and visibly reject one).
 4. **Preserve the V/T-construction and Alexander-duality relationships.** `cubicalripser` vs
-   `tcubicalripser`, and `--embedded`, encode specific mathematical dualities (README "V and T
-   Constructions"). Do not "simplify" or unify code paths in ways that break this correspondence
+   `tcubicalripser`, and `--embedded`, encode specific mathematical dualities
+   ([V and T constructions](docs/concepts.md#v-and-t-constructions)). Do not "simplify" or
+   unify code paths in ways that break this correspondence
    without discussing it first.
 5. **Representative-cycle computation (`representatives.cpp`) is opt-in and must stay
    zero-cost when disabled.** It intentionally trades speed for extra bookkeeping only when
@@ -58,10 +59,10 @@ These apply to any change touching the C++ core (`src/`), the pybind/nanobind gl
 
 ## Before you start
 
-- Skim `README.md` first — it is the source of truth for behavior, CLI flags, output format,
-  and terminology (creator/destroyer, V/T-construction, embedded/Alexander duality). Don't
-  guess at semantics; if something is ambiguous, check the README and the relevant test file
-  before changing behavior.
+- Skim `README.md` first, then consult the [manual](docs/README.md) for behavior, CLI
+  flags, output format, and terminology (creator/destroyer, V/T-construction,
+  embedded/Alexander duality). Don't guess at semantics; if something is ambiguous, check
+  the relevant manual chapter and test file before changing behavior.
 - Check `improvements.md` for known planned work / open issues before assuming a gap is
   unnoticed.
 - For anything beyond a trivial fix, state your plan (what you intend to change, and how you
