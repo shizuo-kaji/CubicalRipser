@@ -19,6 +19,7 @@ from .image_loader import (
 )
 from .transform import SUPPORTED_TRANSFORMS, binarize, apply_transform, preprocess_image
 from .vectorization import create_PH_histogram_volume, persistence_image
+from .zigzag import compute_zigzag
 try:
     from .tcripser import computePH as computePH_T
 except ImportError:
@@ -66,6 +67,7 @@ except ModuleNotFoundError as exc:
 
 __all__ = ["computePH", "computePH_T",
     "__version__", "compute_ph",
+    "compute_zigzag",
     "dual_embedding",
     "to_gudhi_diagrams",
     "to_gudhi_persistence",

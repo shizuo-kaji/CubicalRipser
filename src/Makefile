@@ -34,9 +34,10 @@ LDFLAGS     = $(ARCHFLAGS)
 TARGET1     = cubicalripser
 TARGET2     = tcubicalripser
 
-SRCS_COMMON = coboundary_enumerator.cpp joint_pairs.cpp compute_pairs.cpp ph_2d.cpp representatives.cpp
-SRCS1       = cubicalripser.cpp dense_cubical_grids.cpp $(SRCS_COMMON)
-SRCS2       = cubicalripser.cpp dense_cubical_grids_T.cpp $(SRCS_COMMON)
+SRCS_COMMON = coboundary_enumerator.cpp joint_pairs.cpp compute_pairs.cpp persistence.cpp ph_2d.cpp representatives.cpp \
+              zigzag.cpp zigzag_reduction.cpp zigzag_runs.cpp
+SRCS1       = cubicalripser.cpp image_io.cpp dense_cubical_grids.cpp $(SRCS_COMMON)
+SRCS2       = cubicalripser.cpp image_io.cpp dense_cubical_grids_T.cpp $(SRCS_COMMON)
 
 OBJDIR      = build
 OBJS1       = $(SRCS1:%=$(OBJDIR)/%.o)

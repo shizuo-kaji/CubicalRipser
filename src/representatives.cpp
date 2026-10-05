@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "cubical_cells.h"
 #include "dense_cubical_grids.h"
 
 namespace {
@@ -21,166 +22,6 @@ struct Cell {
   Cube cube;
   uint8_t dim;
 };
-
-uint8_t mask_count_for_cell_dim(const DenseCubicalGrids *dcg,
-                                uint8_t cell_dim) {
-  if (dcg->dim == 4) {
-    switch (cell_dim) {
-    case 0:
-    case 4:
-      return 1;
-    case 1:
-    case 3:
-      return 4;
-    case 2:
-      return 6;
-    default:
-      return 0;
-    }
-  }
-
-  // T-construction of a planar image is represented internally with az == 1.
-  // There are no out-of-plane edges or squares in that complex.
-  if (dcg->config->tconstruction && dcg->az == 1) {
-    switch (cell_dim) {
-    case 0:
-    case 2:
-      return 1;
-    case 1:
-      return 2;
-    default:
-      return 0;
-    }
-  }
-
-  switch (cell_dim) {
-  case 0:
-  case 3:
-    return 1;
-  case 1:
-  case 2:
-    return 3;
-  default:
-    return 0;
-  }
-}
-
-uint8_t axes_for(uint8_t ambient_dim, uint8_t cell_dim, uint8_t mask) {
-  if (ambient_dim < 4) {
-    switch (cell_dim) {
-    case 0:
-      return 0;
-    case 1:
-      return static_cast<uint8_t>(1U << mask); // x, y, z
-    case 2:
-      // xy, zx, yz
-      return mask == 0 ? 0x3U : (mask == 1 ? 0x5U : 0x6U);
-    case 3:
-      return 0x7U;
-    default:
-      return 0;
-    }
-  }
-
-  switch (cell_dim) {
-  case 0:
-    return 0;
-  case 1:
-    return static_cast<uint8_t>(1U << mask); // x, y, z, w
-  case 2:
-    // xy, zx, yz, wx, wy, wz
-    switch (mask) {
-    case 0:
-      return 0x3U;
-    case 1:
-      return 0x5U;
-    case 2:
-      return 0x6U;
-    case 3:
-      return 0x9U;
-    case 4:
-      return 0xaU;
-    default:
-      return 0xcU;
-    }
-  case 3:
-    // xyz, xyw, xzw, yzw
-    switch (mask) {
-    case 0:
-      return 0x7U;
-    case 1:
-      return 0xbU;
-    case 2:
-      return 0xdU;
-    default:
-      return 0xeU;
-    }
-  case 4:
-    return 0xfU;
-  default:
-    return 0;
-  }
-}
-
-uint8_t mask_for_axes(uint8_t ambient_dim, uint8_t cell_dim, uint8_t axes) {
-  if (ambient_dim < 4) {
-    if (cell_dim == 0 || cell_dim == 3)
-      return 0;
-    if (cell_dim == 1) {
-      if (axes == 0x1U)
-        return 0;
-      if (axes == 0x2U)
-        return 1;
-      return 2;
-    }
-    if (axes == 0x3U)
-      return 0;
-    if (axes == 0x5U)
-      return 1;
-    return 2;
-  }
-
-  if (cell_dim == 0 || cell_dim == 4)
-    return 0;
-  if (cell_dim == 1) {
-    switch (axes) {
-    case 0x1U:
-      return 0;
-    case 0x2U:
-      return 1;
-    case 0x4U:
-      return 2;
-    default:
-      return 3;
-    }
-  }
-  if (cell_dim == 2) {
-    switch (axes) {
-    case 0x3U:
-      return 0;
-    case 0x5U:
-      return 1;
-    case 0x6U:
-      return 2;
-    case 0x9U:
-      return 3;
-    case 0xaU:
-      return 4;
-    default:
-      return 5;
-    }
-  }
-  switch (axes) {
-  case 0x7U:
-    return 0;
-  case 0xbU:
-    return 1;
-  case 0xdU:
-    return 2;
-  default:
-    return 3;
-  }
-}
 
 uint64_t packed_index(uint32_t x, uint32_t y, uint32_t z, uint32_t w,
                       uint8_t mask) {
@@ -228,10 +69,11 @@ compute_homology_representatives(DenseCubicalGrids *dcg,
       static_cast<uint8_t>(requested_maxdim), dcg->dim - 1U);
   const uint8_t max_cell_dim = static_cast<uint8_t>(max_homology_dim + 1U);
   const double threshold = dcg->threshold;
+  const bool four_d = dcg->dim == 4;
 
   std::vector<Cell> cells;
   for (uint8_t cell_dim = 0; cell_dim <= max_cell_dim; ++cell_dim) {
-    const uint8_t mask_count = mask_count_for_cell_dim(dcg, cell_dim);
+    const uint8_t mask_count = dcg->cell_type_count(cell_dim);
     for (uint8_t mask = 0; mask < mask_count; ++mask) {
       for (uint32_t w = 0; w < dcg->aw; ++w) {
         for (uint32_t z = 0; z < dcg->az; ++z) {
@@ -282,15 +124,16 @@ compute_homology_representatives(DenseCubicalGrids *dcg,
     chain.assign(1, column);
 
     if (cell.dim > 0) {
-      const uint8_t axes = axes_for(dcg->dim, cell.dim, cell.cube.m());
+      const uint8_t axes =
+          cubical_cells::axes_of(four_d, cell.dim, cell.cube.m());
       for (uint8_t axis = 0; axis < dcg->dim; ++axis) {
         if ((axes & (1U << axis)) == 0U)
           continue;
 
         const uint8_t face_axes = static_cast<uint8_t>(axes & ~(1U << axis));
         const uint8_t face_mask =
-            mask_for_axes(dcg->dim, static_cast<uint8_t>(cell.dim - 1U),
-                          face_axes);
+            cubical_cells::type_of(four_d, static_cast<uint8_t>(cell.dim - 1U),
+                                 face_axes);
         std::array<uint32_t, 4> coords = {
             cell.cube.x(), cell.cube.y(), cell.cube.z(), cell.cube.w()};
         for (uint8_t side = 0; side < 2; ++side) {

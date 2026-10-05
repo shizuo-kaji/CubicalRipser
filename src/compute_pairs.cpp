@@ -36,46 +36,6 @@ using namespace std;
 
 namespace {
 
-uint8_t mask_count_for_cell_dim(const DenseCubicalGrids *dcg, uint8_t cell_dim) {
-  if (dcg->dim == 4) {
-    switch (cell_dim) {
-    case 0:
-    case 4:
-      return 1;
-    case 1:
-    case 3:
-      return 4;
-    case 2:
-      return 6;
-    default:
-      return 0;
-    }
-  }
-
-  if (dcg->config->tconstruction && dcg->az == 1 && dcg->dim < 4) {
-    switch (cell_dim) {
-    case 0:
-    case 2:
-      return 1;
-    case 1:
-      return 2;
-    default:
-      return 0;
-    }
-  }
-
-  switch (cell_dim) {
-  case 0:
-  case 3:
-    return 1;
-  case 1:
-  case 2:
-    return 3;
-  default:
-    return 0;
-  }
-}
-
 void sort_working_column(CachedColumn &column) {
   if (column.size() > 1) {
     std::sort(column.begin(), column.end(), CubeComparator());
@@ -174,7 +134,7 @@ void DensePivotTable::reset(DenseCubicalGrids *dcg, uint8_t target_dim) {
   az = dcg->az;
   aw = dcg->aw;
   cell_dim = target_dim;
-  mask_count = mask_count_for_cell_dim(dcg, target_dim);
+  mask_count = dcg->cell_type_count(target_dim);
   if (mask_count == 0) {
     deactivate();
     return;
@@ -298,9 +258,10 @@ void ComputePairs::reduce_columns(vector<Cube> &ctr, size_t ctl_size,
       }
 
       if (birth != dcg->threshold) {
+        const auto b = dcg->ParentVoxel(dim, ctr[i]);
         local_wp.emplace_back(
-            WritePairs(dim, birth, dcg->threshold, ctr[i].x(), ctr[i].y(),
-                       ctr[i].z(), ctr[i].w(), 0, 0, 0, 0, config->print));
+            WritePairs(dim, birth, dcg->threshold, b[0], b[1], b[2], b[3],
+                       NO_VOXEL, NO_VOXEL, NO_VOXEL, NO_VOXEL, config->print));
       }
       break;
     }
@@ -345,17 +306,23 @@ void ComputePairs::add_cache(
 void ComputePairs::add_cache(
     uint32_t i, CubeQue &wc,
     unordered_map<uint32_t, CachedColumn> &recorded_wc) {
+  // Sorting the heap's storage once is much cheaper than popping it element
+  // by element (it dominated 4D H1).  The result is the same: pivot first, and
+  // equal cubes, now adjacent, cancel in pairs.
+  vector<Cube> &items = wc.container();
+  const CubeComparator less;
+  std::sort(items.begin(), items.end(),
+            [&less](const Cube &a, const Cube &b) { return less(b, a); });
   CachedColumn clean_wc;
-  clean_wc.reserve(wc.size());
-  while (!wc.empty()) {
-    auto c = wc.top();
-    wc.pop();
-    if (!wc.empty() && c.index == wc.top().index) {
-      wc.pop();
+  clean_wc.reserve(items.size());
+  for (size_t k = 0; k < items.size();) {
+    if (k + 1 < items.size() && items[k].index == items[k + 1].index) {
+      k += 2;
     } else {
-      clean_wc.push_back(c);
+      clean_wc.push_back(items[k++]);
     }
   }
+  items.clear();
   recorded_wc.emplace(i, std::move(clean_wc));
 }
 
@@ -409,63 +376,7 @@ void ComputePairs::assemble_columns_to_reduce(vector<Cube> &ctr, uint8_t _dim) {
   dim = _dim;
   ctr.clear();
   double birth;
-  uint8_t max_m = 0;
-  // Determine number of mask types per target dimension based on ambient
-  // dimension 3D: dim 0/1/2/3 => 1/3/3/1 4D: dim 0/1/2/3/4 => 1/4/6/4/1
-  if (dcg->dim == 4) {
-    switch (dim) {
-    case 0:
-      max_m = 1;
-      break;
-    case 1:
-      max_m = 4;
-      break;
-    case 2:
-      max_m = 6;
-      break;
-    case 3:
-      max_m = 4;
-      break;
-    default:
-      max_m = 1;
-      break; // dim == 4
-    }
-  } else {
-    switch (dim) {
-    case 0:
-      max_m = 1;
-      break;
-    case 1:
-      max_m = 3;
-      break;
-    case 2:
-      max_m = 3;
-      break;
-    default:
-      max_m = 1;
-      break; // dim == 3 (or lower)
-    }
-  }
-  // Special-case: 2D image under T-construction (embedded in 3D with az==1)
-  // Restrict mask variants to in-plane components
-  if (dcg->config->tconstruction && dcg->az == 1 && dcg->dim < 4) {
-    switch (dim) {
-    case 0:
-      max_m = 1;
-      break; // 0-cells: single variant
-    case 1:
-      max_m = 2;
-      break; // 1-cells: only x- and y-edges (no z)
-    default:
-      max_m = 1;
-      break; // 2-cells: single square variant (xy)
-    }
-  }
-  if (dim == 0) {
-    if (pivot_column_index) {
-      pivot_column_index->deactivate();
-    }
-  }
+  const uint8_t max_m = dcg->cell_type_count(dim);
   const size_t max_ctr_size =
       static_cast<size_t>(max_m) * static_cast<size_t>(dcg->ax) *
       static_cast<size_t>(dcg->ay) * static_cast<size_t>(dcg->az) *

@@ -34,6 +34,7 @@ public:
     // Method to enumerate all edges based on provided types
     void enum_edges(const std::vector<uint8_t>& types, std::vector<Cube>& ctr);
 
-    // Main method for computing PH0
-    void joint_pairs_main(std::vector<Cube>& ctr, int current_dim);
+    // H_0 by union-find over the edges in ctr; with maxdim > 0, the edges
+    // that merge no components are left in ctr for H_1
+    void joint_pairs_main(std::vector<Cube>& ctr);
 };

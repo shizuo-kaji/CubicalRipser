@@ -19,9 +19,8 @@
 // Preconditions:
 //   - dcg->dim <= 2 and the image is effectively planar (az == 1, aw == 1)
 //   - config.method == LINKFIND
-//   - config.threshold == DBL_MAX (no early cutoff is currently honored
-//     by the existing generic path either, beyond filtering the
-//     "boundary = threshold" cells)
+//   - every value is at most the threshold, and cells at the threshold never
+//     enter (gridFromArray clamps the input)
 bool compute_PH_2d(DenseCubicalGrids* dcg,
                    std::vector<WritePairs>& writepairs,
                    const Config& config);

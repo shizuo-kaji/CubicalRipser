@@ -1,22 +1,71 @@
-# CubicalRipser: Persistent Homology for 1D Time Series, 2D Images, and 3D/4D Volumes
+# CubicalRipser
+
+Fast persistent homology for 1D time series, 2D images, and 3D/4D volumes.
 
 Authors: Takeki Sudo, Kazushi Ahara (Meiji University), Shizuo Kaji (Kyoto University)
 
-CubicalRipser is an adaptation of [Ripser](http://ripser.org) by Ulrich Bauer, specialized in fast computation of persistent homology for cubical complexes.
+CubicalRipser adapts [Ripser](http://ripser.org) by Ulrich Bauer to cubical
+complexes. It provides C++ command-line programs and a Python package, with
+V- and T-constructions, coefficients in F₂, creator/destroyer locations,
+optional representative cycles, zigzag persistence of time-varying binary
+masks, and PyTorch integration.
 
-## Overview
+**[Read the manual](docs/README.md)** ·
+[Try in Google Colab](https://colab.research.google.com/github/shizuo-kaji/CubicalRipser/blob/main/demo/cubicalripser.ipynb) ·
+[Release notes](docs/release-notes.md)
 
-### Key Features
-- Support cubical complexes up to 4D
-- High performance for 3D
-- C++ command-line binaries and Python modules
-- PyTorch integration for differentiable workflows
-- Utility helpers for loading, plotting, and vectorization
-- Filtrations with both V- and T-constructions
-- Binary coefficients (field F2)
-- Optional creator/destroyer locations in outputs
+## Quickstart
+
+Python 3.9 or later:
+
+```bash
+python -m pip install -U numpy cripser
+```
+
+```python
+import numpy as np
+import cripser
+
+# A low-valued ring surrounding a high-valued center.
+image = np.ones((7, 7), dtype=np.float64)
+image[1:6, 1:6] = 0.0
+image[2:5, 2:5] = 1.0
+
+ph = cripser.compute_ph(image, filtration="V", maxdim=1)
+print(ph[:, :3])  # homology dimension, birth, death
+```
+
+Use `filtration="T"` for T-construction. Results also include creator/destroyer
+coordinates; essential classes have `death=np.inf`. See the
+[Python API](docs/python-api.md) and [output semantics](docs/concepts.md).
+
+For the CLI, [build the binaries](docs/installation.md#build-the-command-line-programs), then run from the repository root:
+
+```bash
+./build/cubicalripser --maxdim 2 --output out.csv sample/3dimsample.txt
+./build/tcubicalripser --maxdim 2 --output out_t.csv sample/3dimsample.txt
+```
+
+## Documentation
+
+| Task | Guide |
+| --- | --- |
+| Install Python or build from source | [Installation](docs/installation.md) |
+| Compute PH in Python or from the terminal | [Python API](docs/python-api.md) · [CLI](docs/cli.md) |
+| Load images, volumes, and slice stacks | [Input and output](docs/io.md) |
+| Understand V/T constructions and coordinates | [Constructions and output semantics](docs/concepts.md) |
+| Extract and visualize cycles | [Representative cycles](docs/cycles.md) |
+| Track features through videos and time-lapse masks | [Zigzag persistence](docs/zigzag.md) |
+| Plot diagrams or create feature arrays | [Plotting and vectorization](docs/analysis.md) |
+| Use topology in differentiable workflows | [PyTorch and distances](docs/torch.md) |
+| Test changes and check performance | [Development and validation](docs/development.md) |
+| Compare other implementations | [Related software](docs/related-software.md) |
+
+More tutorials and application examples are listed in the
+[manual](docs/README.md#tutorials-and-applications).
 
 ## Citation
+
 If you use this software in research, please cite:
 
 ```bibtex
@@ -28,519 +77,7 @@ If you use this software in research, please cite:
 }
 ```
 
-## Contents
-- [Getting Started](#getting-started)
-- [Installation](#installation)
-- [Python Usage](#python-usage)
-- [Command-Line Usage](#command-line-usage)
-- [Input Formats](#input-formats)
-- [V and T Constructions](#v-and-t-constructions)
-- [Creator and Destroyer Cells](#creator-and-destroyer-cells)
-- [Representative Homology Cycles](#representative-homology-cycles)
-- [Deep Learning Integration](#deep-learning-integration)
-- [Timing Comparisons](#timing-comparisons)
-- [Testing and Regression Checks](#testing-and-regression-checks)
-- [Other Software for Cubical Complex PH](#other-software-for-cubical-complex-ph)
-- [Release Notes](#release-notes)
-- [License](#license)
-
-## Getting Started
-
-### Try Online
-- **Google Colab Demo**: [CubicalRipser in Action](https://colab.research.google.com/github/shizuo-kaji/CubicalRipser/blob/main/demo/cubicalripser.ipynb)
-- **Topological Data Analysis Tutorial**: [Hands-On Guide](https://colab.research.google.com/github/shizuo-kaji/TutorialTopologicalDataAnalysis/blob/master/TopologicalDataAnalysisWithPython.ipynb)
-- **Applications in Deep Learning**:
-  - [Example 1: Homology-enhanced CNNs](https://github.com/shizuo-kaji/HomologyCNN)
-  - [Example 2: Pretraining CNNs without Data](https://github.com/shizuo-kaji/PretrainCNNwithNoData)
-
-### Quickstart (Python)
-```bash
-pip install -U cripser
-```
-
-```python
-import numpy as np
-import cripser
-
-arr = np.load("sample/2d_hole.npy")
-ph = cripser.compute_ph(arr, filtration="V", maxdim=2)
-print(ph[:5])
-```
-
-### Quickstart (CLI)
-Build binaries first (see [Installation](#installation)), then:
-
-```bash
-./build/cubicalripser --maxdim 2 --output out.csv sample/3dimsample.txt
-./build/tcubicalripser --maxdim 2 --output out_t.csv sample/3dimsample.txt
-```
-
-## Installation
-
-### Using `pip` (recommended)
-```bash
-pip install -U cripser
-```
-
-If wheel compatibility is an issue on your platform:
-
-```bash
-pip uninstall -y cripser
-pip install --no-binary cripser cripser
-```
-
-### Building from source
-Requirements:
-- Python >= 3.9 (Python 3.8 is no longer supported)
-- CMake >= 3.21
-- C++17+ compiler (GCC, Clang, MSVC; `src/Makefile` defaults to C++20)
-- `nanobind` (installed automatically as a build dependency via `pyproject.toml`)
-
-Clone the repository:
-
-```bash
-git clone https://github.com/shizuo-kaji/CubicalRipser.git
-cd CubicalRipser
-```
-
-Build CLI binaries:
-
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
-```
-
-Outputs:
-- `build/cubicalripser` (V-construction)
-- `build/tcubicalripser` (T-construction)
-
-Install the Python package from source:
-
-```bash
-pip install .
-```
-
-Legacy alternative (from `src/`):
-
-```bash
-cd src
-make all
-```
-
-## Python Usage
-
-CubicalRipser works on 1D/2D/3D/4D NumPy arrays (dtype convertible to `float64`).
-
-### Core APIs
-- `cripser.computePH(...)`: low-level binding
-- `cripser.compute_ph(...)`: convenience wrapper (converts essential deaths to `np.inf`)
-
-Both support:
-- `filtration="V"` or `filtration="T"`
-- `maxdim`, `top_dim`, `embedded`, `location`
-- `n_threads` (see [Parallelism](#parallelism))
-
-### Input limits
-- Arrays must be 1D-4D with no zero-length axis.
-- For 3D/4D inputs, and for 2D inputs using `top_dim=True` or
-  `representatives=True`, each axis must be at most 32760 — cell coordinates are
-  packed into 15 bits internally. Longer axes raise `ValueError`. Plain 1D/2D
-  computations use a wider encoding and have no such limit.
-
-Example (V-construction):
-
-```python
-import numpy as np
-import cripser
-
-arr = np.load("sample/4d_hole.npy")
-ph = cripser.compute_ph(arr, filtration="V", maxdim=3)
-```
-
-### Output format
-For 1D-3D input, each row is typically:
-
-```text
-dim, birth, death, x1, y1, z1, x2, y2, z2
-```
-
-For 4D input:
-
-```text
-dim, birth, death, x1, y1, z1, w1, x2, y2, z2, w2
-```
-
-See [Creator and Destroyer Cells](#creator-and-destroyer-cells) for interpretation of coordinates.
-
-Notes:
-- `computePH(...)` and CLI may represent essential deaths as `DBL_MAX`.
-- `compute_ph(...)` converts essential deaths to `np.inf`.
-
-### Parallelism
-
-The Python binding releases the GIL for the whole computation, so several
-images can be processed concurrently with plain threads:
-
-```python
-from concurrent.futures import ThreadPoolExecutor
-import cripser
-
-with ThreadPoolExecutor(8) as pool:
-    results = list(pool.map(lambda a: cripser.compute_ph(a, maxdim=2), volumes))
-```
-
-Within a single computation, `n_threads` parallelises the grid scans and sorts:
-
-- `n_threads=1` (default) — sequential.
-- `n_threads=0` — auto (hardware concurrency, or `CRIPSER_NUM_THREADS`).
-- `n_threads=k` — at most `k` workers.
-
-### GUDHI conversion helpers
-```python
-dgms = cripser.to_gudhi_diagrams(ph)
-persistence = cripser.to_gudhi_persistence(ph)
-```
-
-GUDHI plotting example:
-
-```python
-import gudhi as gd
-gd.plot_persistence_diagram(diagrams=dgms)
-```
-
-### Differentiable PyTorch wrapper
-```python
-import torch
-import cripser
-
-x = torch.rand(32, 32, requires_grad=True)
-ph = cripser.compute_ph_torch(x, maxdim=1, filtration="V")
-loss = cripser.finite_lifetimes(ph, dim=0).sum()
-loss.backward()
-```
-
-The gradient is propagated through birth/death values to creator/destroyer voxel locations. Pairing changes are discrete, so the gradient is piecewise-defined.
-
-### Additional utilities
-- plotting: `cripser.plot_diagrams(...)` (requires `matplotlib`)
-- vectorization: `cripser.persistence_image(...)`, `cripser.create_PH_histogram_volume(...)`
-- OT distance: `cripser.wasserstein_distance(...)` (requires `torch` and `POT`/`ot`)
-
-### Helper Python script (`demo/cr.py`)
-A convenience wrapper for quick experiments without writing Python code.
-
-Typical capabilities:
-- Accepts a single file (`.npy`, image, DICOM, etc.) or a directory of slices
-- Builds 1D-4D arrays from files
-- Chooses V- or T-construction
-- Computes PH up to a chosen max dimension
-- Writes CSV or `.npy` outputs
-- Optional sorting for DICOM/sequence inputs
-
-Help:
-
-```bash
-python demo/cr.py -h
-```
-
-Examples:
-
-```bash
-# single NumPy array
-python demo/cr.py sample/2d_hole.npy -o ph.csv
-
-# increase max dimension, use T-construction
-python demo/cr.py sample/bonsai128.npy -o ph.csv --maxdim 3 --filtration T
-
-# directory of DICOM files (sorted)
-python demo/cr.py dicom/ --sort -it dcm -o ph.csv
-
-# directory of PNG slices
-python demo/cr.py slices/ -it png -o ph.csv
-
-# save PH as NumPy for reuse
-python demo/cr.py sample/bonsai128.npy -o ph.npy
-
-# invert intensity sign
-python demo/cr.py sample/bonsai128.npy -o ph.csv --negative
-```
-
-Selected options (see `-h` for full list):
-- `--maxdim k`
-- `--filtration V|T`
-- `--sort`
-- `-it EXT`
-- `-o FILE`
-- `--embedded`
-- `--negative`
-- `--transform ...`, `--threshold ...`, `--threshold_upper_limit ...`
-
-## Command-Line Usage
-
-### Basic examples
-Perseus-style text input:
-
-```bash
-./build/cubicalripser --print --maxdim 2 --output out.csv sample/3dimsample.txt
-```
-
-NumPy input (1D-4D):
-
-```bash
-./build/cubicalripser --maxdim 3 --output result.csv sample/bonsai128.npy
-```
-
-T-construction:
-
-```bash
-./build/tcubicalripser --maxdim 3 --output volume_ph.csv sample/bonsai128.npy
-```
-
-
-### Common options (`cubicalripser --help`)
-- `--maxdim, -m <k>`: compute up to dimension `k` (default `3`)
-- `--threshold, -t <value>`: threshold for births
-- `--print, -p`: print pairs to stdout
-- `--embedded, -e`: Alexander dual interpretation
-- `--top_dim`: top-dimensional computation using Alexander duality
-- `--location, -l yes|none`: include or omit creator/destroyer coordinates
-- `--algorithm, -a link_find|compute_pairs`: 0-dimensional PH method
-- `--cache_size, -c <n>`: cache limit
-- `--min_recursion_to_cache, -mc <n>`: recursion threshold for caching
-- `--threads <n>`: worker threads for grid scans and sorts (`1` = sequential, default; `0` = auto). Output is identical either way.
-- `--output, -o <FILE>`: write `.csv`, `.npy`, or DIPHA-style persistence binary
-- `--verbose, -v`
-
-Notes:
-- CLI does not use `--filtration`; V/T are separate binaries.
-- Use `--output none` to suppress output file creation.
-
-## Input Formats
-
-### Supported input formats (CLI)
-- **NumPy (`.npy`)**
-- **Perseus text (`.txt`)**: [Specification](http://people.maths.ox.ac.uk/nanda/perseus/)
-- **CSV (`.csv`)**
-- **DIPHA complex (`.complex`)**: [Specification](https://github.com/DIPHA/dipha#file-formats)
-
-### Image-to-array conversion (`demo/img2npy.py`)
-A helper utility converts images/volumes between multiple formats.
-
-```bash
-# image -> .npy
-python demo/img2npy.py image.jpg output.npy
-
-# image series glob -> volume .npy (shell expansion)
-python demo/img2npy.py input*.jpg volume.npy
-
-# explicit files -> volume .npy
-python demo/img2npy.py input00.dcm input01.dcm input02.dcm volume.npy
-```
-
-DICOM volume conversion:
-
-```bash
-python demo/img2npy.py dicom/*.dcm output.npy
-```
-
-Direct DICOM PH computation:
-
-```bash
-python demo/cr.py dicom/ --sort -it dcm -o output.csv
-```
-
-DIPHA conversions:
-
-```bash
-# NumPy -> DIPHA complex
-python demo/img2npy.py img.npy img.complex
-
-# DIPHA complex -> NumPy
-python demo/img2npy.py img.complex img.npy
-
-# DIPHA persistence output (.output/.diagram) -> NumPy
-python demo/img2npy.py result.output result.npy
-```
-
-### 1D time series
-A scalar time series can be treated as a 1D image, so CubicalRipser can compute its persistent homology.
-
-For this special case, other software may be more efficient.
-
-A related frequency-regression example is demonstrated in the [TutorialTopologicalDataAnalysis repository](https://github.com/shizuo-kaji/TutorialTopologicalDataAnalysis).
-
-## V and T Constructions
-
-- **V-construction**: pixels/voxels represent 0-cells (4-neighborhood in 2D)
-- **T-construction**: pixels/voxels represent top-cells (8-neighborhood in 2D)
-
-Use:
-- Python: `filtration="V"` or `filtration="T"`
-- CLI: `cubicalripser` (V), `tcubicalripser` (T)
-
-By Alexander duality, the following are closely related:
-
-```bash
-./build/cubicalripser input.npy
-./build/tcubicalripser --embedded input.npy
-```
-
-The difference is in the sign of filtration and treatment of permanent cycles. Here, `--embedded` converts input `I` to `-I^infty` in the paper's notation.
-
-For details, see [Duality in Persistent Homology of Images](https://arxiv.org/abs/2005.04597) by Adelie Garin et al.
-
-## Creator and Destroyer Cells
-
-The creator of a cycle is the cell that gives birth to the cycle. For example, in 0-dimensional homology, the voxel with lower filtration in a component creates that class, and a connecting voxel can destroy the class with higher birth time.
-
-Creator and destroyer cells are not unique, but they are useful for localizing cycles.
-
-For finite lifetime in the default convention:
-
-```text
-arr[x2,y2,z2] - arr[x1,y1,z1] = death - birth = lifetime
-```
-
-where `(x1,y1,z1)` is creator and `(x2,y2,z2)` is destroyer.
-
-With `--embedded`, creator and destroyer roles are swapped:
-
-```text
-arr[x1,y1,z1] - arr[x2,y2,z2] = death - birth = lifetime
-```
-
-Thanks to Nicholas Byrne for suggesting this convention and providing test code.
-
-## Representative Homology Cycles
-
-The Python APIs can optionally return a representative **homology cycle** for
-every persistence interval. This uses direct boundary reduction over F2, so it
-is intended for inspection and visualization rather than high-throughput PH
-calculation.
-
-```python
-pairs, cycles = cripser.compute_ph(image, maxdim=1, representatives=True)
-
-# cycles[i] is the cycle for persistence row pairs[i].
-# Each cell is [x, y, z, cell_type] (or [x, y, z, w, cell_type] in 4D).
-```
-
-All listed cells have coefficient one in F2. `cell_type` identifies the cell
-orientation; for example, planar 1-cycles use `0` for x-edges and `1` for
-y-edges. Convert an individual chain to an array with
-`np.asarray(cycles[i], dtype=np.uint32)` if convenient.
-
-Use `plot_cycle` for a single planar H₁ representative, or `plot_cycles` for
-several representatives. Passing the original 2-D image draws the cycles in
-the same `(x, y)` coordinates over the image; use `overlay=False` to omit the
-background.
-
-```python
-ax = cripser.plot_cycles(
-    [cycles[i] for i in selected_indices],
-    image=image,
-    labels=["H₁ #1", "H₁ #2"],
-)
-```
-
-For an example with two figure-eight peaks, see the
-[representative-cycles section](demo/cubicalripser.ipynb#representative-cycles)
-of the main tutorial.
-
-The option is disabled by default. In that mode CubicalRipser keeps using its
-existing optimized cohomology/coboundary reduction without allocating or
-tracking representative chains. It cannot be combined with `top_dim=True`,
-which uses a separate Alexander-duality shortcut.
-
-## Vectorization
-
-```python
-import numpy as np
-import cripser
-
-arr = np.load("sample/2d_hole.npy")
-ph = cripser.compute_ph(arr, maxdim=1)
-
-# Persistence image (channels = selected homology dimensions)
-pi = cripser.persistence_image(
-    ph,
-    homology_dims=(0, 1),
-    n_birth_bins=32,
-    n_life_bins=32,
-)
-
-# PH histogram volume (channels encode dim x life-bin x birth-bin)
-hist = cripser.create_PH_histogram_volume(
-    ph,
-    image_shape=arr.shape,
-    homology_dims=(0, 1),
-    n_birth_bins=4,
-    n_life_bins=4,
-)
-```
-
-
-## Other Software for Cubical Complex PH
-The following notes are based on our limited understanding and tests and may be incomplete.
-
-- [Cubicle](https://bitbucket.org/hubwag/cubicle/src/master/) by Hubert Wagner
-  - T-construction
-  - slices the volume, simplifies each slice in parallel with discrete Morse
-    theory, then reduces a single global boundary matrix
-  - streams slices through external memory, so volumes larger than RAM can be
-    processed
-  - the choice for very large volumes, and whenever memory is the binding constraint
-  - input is a raw binary file, 8-bit by default (other element types need a recompile)
-
-- [HomcCube](https://i-obayashi.info/software.html) by Ippei Obayashi
-  - V-construction
-  - integrated into HomCloud, which provides a full TDA workflow around it
-
-- [DIPHA](https://github.com/DIPHA/dipha) by Ulrich Bauer and Michael Kerber
-  - V-construction
-  - MPI-parallelized; the choice when a compute cluster is available
-
-- [GUDHI](https://gudhi.inria.fr/) (INRIA)
-  - V- and T-construction in arbitrary dimensions
-  - extensive documentation, and a broad TDA library beyond cubical complexes
-  - the choice for dimensions above 4, or when the surrounding toolkit is useful
-
-- [diamorse](https://github.com/AppliedMathematicsANU/diamorse)
-  - V-construction
-
-- [Perseus](http://people.maths.ox.ac.uk/nanda/perseus/) by Vidit Nanda
-  - V-construction
-
-## Release Notes
-- **v0.0.36**:
-  - The Python binding now releases the GIL during the computation, so　`ThreadPoolExecutor` over many images scales across cores.
-  - New `n_threads` argument (`--threads` on the CLI) for intra-computation threading.
-  - Fix: 3D/4D inputs with an axis longer than 32767 segfaulted. Such shapes now raise `ValueError`.
-  - Fix: a single-voxel 3D/4D input reported `birth = DBL_MAX` instead of the voxel value.
-- **v0.0.35**: Added support for computation of cycle representatives (homology cycles) for each persistence interval.
-- **v0.0.34**: Switched the Python binding layer from pybind11 to [nanobind](https://github.com/wjakob/nanobind) so a single `cp312-abi3` wheel covers Python 3.12+. **Python 3.8 is dropped** (nanobind requires ≥ 3.9).
-- **v0.0.31**: Changed module structure (hopefully, backward compatible)
-- **v0.0.30**: Improved cache resulting in large speedup
-- **v0.0.24**: Repository renamed from `CubicalRipser_3dim` to `CubicalRipser`.
-  - update old remote if needed:
-    ```bash
-    git remote set-url origin https://github.com/shizuo-kaji/CubicalRipser.git
-    ```
-- **v0.0.23**: Added torch integration
-- **v0.0.22**: Changed birth coordinates for T-construction to better match GUDHI for permanent cycles
-- **v0.0.19**: Added support for 4D cubical complexes
-- **v0.0.15**: Added support for Fortran-indexed numpy arrays (F_CONTIGUOUS arrays): Up to v0.0.14, C_CONTIGUOUS was assumed, which caused incorrect results for Fortran-indexed arrays.
-- **v0.0.8**: Fixed memory leak in Python bindings (pointed out by Nicholas Byrne)
-- **v0.0.7**: Speed improvements
-- **v0.0.6**: Changed [birth/death location definition](#creator-and-destroyer-cells)
-- **up to v0.0.5**, differences from the [original version](https://github.com/CubicalRipser/CubicalRipser_3dim):
-  - optimized implementation (lower memory footprint and faster on some data)
-  - improved Python usability
-  - much larger practical input sizes
-  - cache control
-  - Alexander duality option for highest-degree PH
-  - both V and T constructions
-  - birth/death location output
-
 ## License
-Distributed under GNU Lesser General Public License v3.0 or later. See `LICENSE`.
+
+Distributed under the GNU Lesser General Public License v3.0 or later.
+See [LICENSE](LICENSE).

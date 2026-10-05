@@ -15,6 +15,9 @@ with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <cstdint>
 #include "dense_cubical_grids.h"
 
+// Grid coordinate of the missing destroyer of a class that never dies.
+constexpr uint32_t NO_VOXEL = UINT32_MAX;
+
 class WritePairs
 {
 public:
@@ -45,7 +48,7 @@ public:
         birth = _birthC.birth;
         death = _deathC.birth;
         auto b =  _dcg->ParentVoxel(dim, _birthC);
-        auto d =  _dcg->ParentVoxel(dim, _deathC);
+        auto d =  _dcg->ParentVoxel(dim + 1, _deathC);
         birth_x=b[0];
         birth_y=b[1];
         birth_z=b[2];

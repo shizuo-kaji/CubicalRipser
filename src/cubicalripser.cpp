@@ -13,7 +13,6 @@ with this program. If not, see <http://www.gnu.org/licenses/>.
 #include <fstream>
 #include <iostream>
 #include <algorithm>
-#include <queue>
 #include <vector>
 #include <unordered_map>
 #include <string>
@@ -26,15 +25,15 @@ with this program. If not, see <http://www.gnu.org/licenses/>.
 #include <array>
 #include <iomanip>
 #include <limits>
+#include <map>
 
 #include "cube.h"
 #include "dense_cubical_grids.h"
 #include "write_pairs.h"
-#include "joint_pairs.h"
-#include "compute_pairs.h"
 #include "config.h"
+#include "persistence.h"
+#include "image_io.h"
 #include "npy.hpp"
-#include "ph_2d.h"
 
 namespace {
 
@@ -64,9 +63,8 @@ void print_usage() {
               << "  --maxdim <t>, -m    compute persistent homology up to dimension <t>\n"
               << "  --threads <n>       worker threads for grid scans and sorts\n"
               << "                      (1 = sequential, default; 0 = auto). Output is identical either way.\n"
-              << "  --algorithm, -a     algorithm to compute the 0-dim persistent homology:\n"
-              << "                    link_find      (default)\n"
-              << "                    compute_pairs  (slow in most cases)\n"
+              << "  --algorithm, -a     algorithm for the 0-dim persistent homology; only\n"
+              << "                    link_find (union-find) is available\n"
               << "  --min_recursion_to_cache, -mc  minimum number of recursion for a reduced column to be cached\n"
               << "  --cache_size, -c    maximum number of reduced columns to be cached\n"
               << "  --output, -o        name of the output file\n"
@@ -76,8 +74,6 @@ void print_usage() {
               << "  --location, -l      whether creator/destroyer location is included in the output:\n"
               << "                    yes     (default)\n"
               << "                    none\n"
-              << "  --coface-table      use table-driven coboundary enumeration (experimental; default)\n"
-              << "  --no-coface-table   disable table-driven coboundary enumeration\n"
               << "  --vector-working-column  use sorted-vector working columns for 4D H1 (experimental)\n"
               << "  --explicit-clearing compress pivot table to a bitset before next-dim clearing (experimental; default)\n"
               << "  --no-explicit-clearing disable explicit clearing\n"
@@ -129,7 +125,8 @@ private:
                     config_.method = LINKFIND;
                 }
                 else if (param == "compute_pairs") {
-                    config_.method = COMPUTEPAIRS;
+                    throw std::runtime_error(
+                        "The compute_pairs algorithm has been removed; use link_find");
                 }
                 else {
                     throw std::runtime_error("Invalid algorithm value");
@@ -171,12 +168,6 @@ private:
                 } catch (const std::exception&) {
                     throw std::runtime_error("Invalid threads value");
                 }
-            }
-            else if (arg == "--coface-table") {
-                config_.coface_table = true;
-            }
-            else if (arg == "--no-coface-table") {
-                config_.coface_table = false;
             }
             else if (arg == "--vector-working-column") {
                 config_.vector_working_column = true;
@@ -244,13 +235,11 @@ bool file_exists(const std::string& filename) {
     return f.good();
 }
 
-void write_output(const std::vector<WritePairs>& writepairs,
-                 const DenseCubicalGrids* dcg,
+void write_output(const Persistence& persistence, uint8_t dim,
                  const Config& config) {
-    const uint32_t pad_x = (dcg->ax - dcg->img_x) / 2;
-    const uint32_t pad_y = (dcg->ay - dcg->img_y) / 2;
-    const uint32_t pad_z = (dcg->az - dcg->img_z) / 2;
-    const uint32_t pad_w = (dcg->dim < 4) ? 0u : (dcg->aw - dcg->img_w) / 2;
+    const std::vector<WritePairs>& writepairs = persistence.pairs;
+    const InputCoordinates& input_voxel = persistence.input_voxel;
+    const int num_axes = (dim < 4) ? 3 : 4;
 
     const auto num_pairs = writepairs.size();
     std::cout << "Total number of pairs: " << num_pairs << std::endl;
@@ -266,29 +255,16 @@ void write_output(const std::vector<WritePairs>& writepairs,
         for (const auto& pair : writepairs) {
             out << static_cast<unsigned int>(pair.dim) << "," << pair.birth << "," << pair.death;
             if (config.location != LOC_NONE) {
-                if (dcg->dim < 4) {
-                    out << "," << pair.birth_x - pad_x
-                        << "," << pair.birth_y - pad_y
-                        << "," << pair.birth_z - pad_z
-                        << "," << pair.death_x - pad_x
-                        << "," << pair.death_y - pad_y
-                        << "," << pair.death_z - pad_z;
-                } else {
-                    out << "," << pair.birth_x - pad_x
-                        << "," << pair.birth_y - pad_y
-                        << "," << pair.birth_z - pad_z
-                        << "," << pair.birth_w - pad_w
-                        << "," << pair.death_x - pad_x
-                        << "," << pair.death_y - pad_y
-                        << "," << pair.death_z - pad_z
-                        << "," << pair.death_w - pad_w;
-                }
+                const auto b = input_voxel(pair.birth_x, pair.birth_y, pair.birth_z, pair.birth_w);
+                const auto d = input_voxel(pair.death_x, pair.death_y, pair.death_z, pair.death_w);
+                for (int a = 0; a < num_axes; ++a) out << "," << b[a];
+                for (int a = 0; a < num_axes; ++a) out << "," << d[a];
             }
             out << '\n';
         }
     }
     else if (ext == ".npy") {
-        const size_t ncols = (dcg->dim < 4) ? 9 : 11; // dim,birth,death,(x1,y1,z1[,w1]),(x2,y2,z2[,w2])
+        const size_t ncols = 3 + 2 * num_axes; // dim,birth,death,(x1,y1,z1[,w1]),(x2,y2,z2[,w2])
         const std::array<long unsigned, 2> shape = {num_pairs, static_cast<long unsigned>(ncols)};
         std::vector<double> data(ncols * num_pairs, 0.0);
 
@@ -298,20 +274,11 @@ void write_output(const std::vector<WritePairs>& writepairs,
             data[base + 0] = static_cast<double>(pair.dim);
             data[base + 1] = pair.birth;
             data[base + 2] = pair.death;
-            // birth coords
-            data[base + 3] = static_cast<double>(pair.birth_x) - pad_x;
-            data[base + 4] = static_cast<double>(pair.birth_y) - pad_y;
-            data[base + 5] = static_cast<double>(pair.birth_z) - pad_z;
-            size_t idx = 6;
-            if (dcg->dim >= 4) {
-                data[base + idx++] = static_cast<double>(pair.birth_w) - pad_w; // base+6
-            }
-            // death coords
-            data[base + idx++] = static_cast<double>(pair.death_x) - pad_x;
-            data[base + idx++] = static_cast<double>(pair.death_y) - pad_y;
-            data[base + idx++] = static_cast<double>(pair.death_z) - pad_z;
-            if (dcg->dim >= 4) {
-                data[base + idx++] = static_cast<double>(pair.death_w) - pad_w; // base+10
+            const auto b = input_voxel(pair.birth_x, pair.birth_y, pair.birth_z, pair.birth_w);
+            const auto d = input_voxel(pair.death_x, pair.death_y, pair.death_z, pair.death_w);
+            for (int a = 0; a < num_axes; ++a) {
+                data[base + 3 + a] = static_cast<double>(b[a]);
+                data[base + 3 + num_axes + a] = static_cast<double>(d[a]);
             }
         }
 
@@ -357,172 +324,30 @@ int main(int argc, char** argv) {
 
         determine_file_format(config);
 
-        std::vector<WritePairs> writepairs;
-        std::vector<uint64_t> betti;
-        std::vector<Cube> ctr;
-
-        DenseCubicalGrids dcg(config);
-        dcg.loadImage(config.embedded);
+        std::cout << "Reading " << config.filename << std::endl;
+        const InputImage image = read_input_image(config);
+        DenseCubicalGrids dcg(config, image.dim, image.shape[0], image.shape[1],
+                              image.shape[2], image.shape[3]);
+        std::cout << "dim = " << static_cast<int>(dcg.dim)
+                  << " T-construction = " << config.tconstruction
+                  << " method = " << config.method << std::endl;
+        std::cout << "x : y : z" << (dcg.dim < 4 ? "" : " : w") << " = " << image.shape[0]
+                  << " : " << image.shape[1] << " : " << image.shape[2];
+        if (dcg.dim == 4) std::cout << " : " << image.shape[3];
+        std::cout << std::endl;
         config.maxdim = std::min<uint8_t>(config.maxdim, dcg.dim - 1);
 
-        // Compute persistent homology
-        switch (config.method) {
-            case LINKFIND: {
-                Timer timer;
-                if (dcg.dim <= 2 && dcg.az == 1 && dcg.aw == 1 &&
-                    compute_PH_2d(&dcg, writepairs, config)) {
-                    uint64_t count_dim0 = 0;
-                    uint64_t count_dim1 = 0;
-                    for (const auto& pair : writepairs) {
-                        if (pair.dim == 0) ++count_dim0;
-                        else if (pair.dim == 1) ++count_dim1;
-                    }
-                    betti.push_back(count_dim0);
-                    std::cout << "Number of pairs in dim 0: " << count_dim0 << std::endl;
-                    if (config.maxdim > 0) {
-                        betti.push_back(count_dim1);
-                        std::cout << "Number of pairs in dim 1: " << count_dim1 << std::endl;
-                    }
-                    const auto total_msec = timer.milliseconds();
-                    std::cout << "Total computation took " << total_msec << " [msec]" << std::endl;
-                    break;
-                }
-                JointPairs jp(&dcg, writepairs, config);
-                // Enumerate edges based on dimension
-                if (dcg.dim == 1) {
-                    jp.enum_edges({0, 1}, ctr);
-                }
-                else if (dcg.dim == 2) {
-                    jp.enum_edges({0, 1}, ctr);
-                }
-                else if (dcg.dim == 3) { // 3D
-                    jp.enum_edges({0, 1, 2}, ctr);
-                }
-                else { // 4D
-                    jp.enum_edges({0, 1, 2, 3}, ctr);
-                }
-                // Compute dimension 0 via union-find
-                jp.joint_pairs_main(ctr, 0);
-                const auto msec = timer.milliseconds();
-
-                betti.push_back(writepairs.size());
-                std::cout << "Number of pairs in dim 0: " << betti[0] << std::endl;
-                if (config.verbose) {
-                    std::cout << "Computation took " << msec << " [msec]" << std::endl;
-                }
-
-                // Compute higher dimensions
-                if (config.maxdim > 0) {
-                    Timer timer1;
-                    ComputePairs cp(&dcg, writepairs, config);
-                    cp.compute_pairs_main(ctr);  // dim1
-
-                    betti.push_back(writepairs.size() - betti[0]);
-                    const auto msec1 = timer1.milliseconds();
-                    std::cout << "Number of pairs in dim 1: " << betti[1] << std::endl;
-                    if (config.verbose) {
-                        std::cout << "Computation took " << msec1 << " [msec]" << std::endl;
-                    }
-
-                    if (config.maxdim > 1) {
-                        Timer timer2;
-                        cp.assemble_columns_to_reduce(ctr, 2);
-                        cp.compute_pairs_main(ctr);  // dim2
-
-                        const auto msec2 = timer2.milliseconds();
-                        betti.push_back(writepairs.size() - betti[0] - betti[1]);
-                        std::cout << "Number of pairs in dim 2: " << betti[2] << std::endl;
-                        if (config.verbose) {
-                            std::cout << "Computation took " << msec2 << " [msec]" << std::endl;
-                        }
-                        if (config.maxdim > 2) {
-                            Timer timer3;
-                            cp.assemble_columns_to_reduce(ctr, 3);
-                            cp.compute_pairs_main(ctr);  // dim3
-
-                            const auto msec3 = timer3.milliseconds();
-                            betti.push_back(writepairs.size() - betti[0] - betti[1] - betti[2]);
-                            std::cout << "Number of pairs in dim 3: " << betti[3] << std::endl;
-                            if (config.verbose) {
-                                std::cout << "Computation took " << msec3 << " [msec]" << std::endl;
-                            }
-                        }
-                    }
-                }
-
-                const auto total_msec = timer.milliseconds();
-                std::cout << "Total computation took " << total_msec << " [msec]" << std::endl;
-                break;
-            }
-
-            case COMPUTEPAIRS: {
-                // TODO: bug in T-construction in PH0
-                ComputePairs cp(&dcg, writepairs, config);
-                // Dimension 0
-                cp.assemble_columns_to_reduce(ctr, 0);
-                cp.compute_pairs_main(ctr);
-                betti.push_back(writepairs.size());
-                std::cout << "Number of pairs in dim 0: " << betti[0] << std::endl;
-
-                if (config.maxdim > 0) {
-                    // Dimension 1
-                    cp.assemble_columns_to_reduce(ctr, 1);
-                    cp.compute_pairs_main(ctr);
-                    betti.push_back(writepairs.size() - betti[0]);
-                    std::cout << "Number of pairs in dim 1: " << betti[1] << std::endl;
-
-                    if (config.maxdim > 1) {
-                        // Dimension 2
-                        cp.assemble_columns_to_reduce(ctr, 2);
-                        cp.compute_pairs_main(ctr);
-                        betti.push_back(writepairs.size() - betti[0] - betti[1]);
-                        std::cout << "Number of pairs in dim 2: " << betti[2] << std::endl;
-
-                        if (config.maxdim > 2) {
-                            // Dimension 3
-                            cp.assemble_columns_to_reduce(ctr, 3);
-                            cp.compute_pairs_main(ctr);
-                            betti.push_back(writepairs.size() - betti[0] - betti[1] - betti[2]);
-                            std::cout << "Number of pairs in dim 3: " << betti[3] << std::endl;
-                        }
-                    }
-                }
-                break;
-            }
-
-            case ALEXANDER: {
-                if (config.tconstruction) {
-                    throw std::runtime_error("Alexander duality for T-construction not implemented");
-                }
-                Timer timer;
-                JointPairs jp(&dcg, writepairs, config);
-
-                if (dcg.dim == 1) {
-                    jp.enum_edges({0}, ctr);
-                    jp.joint_pairs_main(ctr, 0);
-                    std::cout << "Number of pairs in dim 0: " << writepairs.size() << std::endl;
-                }
-                else if (dcg.dim == 2) {
-                    jp.enum_edges({0, 1, 3, 4}, ctr);
-                    jp.joint_pairs_main(ctr, 1);
-                    std::cout << "Number of pairs in dim 1: " << writepairs.size() << std::endl;
-                }
-                else if (dcg.dim == 3) {
-                    jp.enum_edges({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}, ctr);
-                    jp.joint_pairs_main(ctr, 2);
-                    std::cout << "Number of pairs in dim 2: " << writepairs.size() << std::endl;
-                }
-                else if (dcg.dim == 4) {
-                    throw std::runtime_error("Alexander duality not implemented for 4D");
-                }
-
-                const auto msec = timer.milliseconds();
-                std::cout << "Computation took " << msec << " [msec]" << std::endl;
-                break;
-            }
+        Timer timer;
+        const Persistence persistence = compute_persistence(
+            dcg, image.values.data(), image.fortran_order, config);
+        std::map<unsigned, uint64_t> pairs_per_dim;
+        for (const auto& pair : persistence.pairs) ++pairs_per_dim[pair.dim];
+        for (const auto& [dim, count] : pairs_per_dim) {
+            std::cout << "Number of pairs in dim " << dim << ": " << count << std::endl;
         }
+        std::cout << "Total computation took " << timer.milliseconds() << " [msec]" << std::endl;
 
-        write_output(writepairs, &dcg, config);
+        write_output(persistence, dcg.dim, config);
         return 0;
 
     } catch (const std::exception& e) {

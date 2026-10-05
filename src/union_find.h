@@ -11,6 +11,7 @@ You should have received a copy of the GNU Lesser General Public License along
 with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#pragma once
 
 #include <cstdint>
 #include <limits>
@@ -20,11 +21,24 @@ with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 using namespace std;
 
+// Path-compression find for a flat parent array (parent[root] == root).
+inline uint32_t uf_find(std::vector<uint32_t>& parent, uint32_t x) {
+	uint32_t r = x;
+	while (parent[r] != r) r = parent[r];
+	while (parent[x] != r) {
+		uint32_t nxt = parent[x];
+		parent[x] = r;
+		x = nxt;
+	}
+	return r;
+}
+
 class UnionFind{
 private:
 	vector<uint32_t> parent;
 public:
 	vector<double> birthtime;
+	uint64_t present{0}; // vertices below the threshold
 	UnionFind(DenseCubicalGrids* _dcg);
 	uint64_t find(uint64_t x);
 	void link(uint64_t x, uint64_t y);
@@ -40,9 +54,11 @@ inline UnionFind::UnionFind(DenseCubicalGrids* _dcg) {
 	//cout << n << " vertices" << endl;
 
 	uint32_t i=0;
+	const double threshold = _dcg->threshold;
 	auto append_vertex = [&](double birth) {
 		parent[i] = i;
 		birthtime[i] = birth;
+		present += birth < threshold;
 		++i;
 	};
     const bool tconstruction = _dcg->config->tconstruction;

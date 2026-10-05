@@ -11,6 +11,9 @@ with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 #include "cubicalripser_pybind.h"
+#ifdef CRIPSER_ZIGZAG_BINDING
+#include "zigzag_pybind.h"
+#endif
 
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
@@ -45,6 +48,14 @@ NB_MODULE(CRIPSER_MODULE_NAME, m) {
           nb::arg("arr"), nb::arg("maxdim") = 3, nb::arg("top_dim") = false,
           nb::arg("embedded") = false, nb::arg("location") = "yes",
           nb::arg("representatives") = false, nb::arg("n_threads") = 1);
+
+#ifdef CRIPSER_ZIGZAG_BINDING
+    // Zigzag persistence chooses V/T at run time, so only one module needs it.
+    m.def("computeZigzag", &computeZigzag, "Compute zigzag persistence of a mask sequence",
+          nb::arg("masks"), nb::arg("tconstruction") = false,
+          nb::arg("union_connect") = false, nb::arg("maxdim") = 3,
+          nb::arg("exhaustive") = true);
+#endif
 
 #ifdef VERSION_INFO
     m.attr("__version__") = VERSION_INFO;

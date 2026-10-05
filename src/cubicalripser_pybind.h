@@ -29,11 +29,9 @@ typedef SSIZE_T ssize_t;
 
 #include "cube.h"
 #include "write_pairs.h"
-#include "joint_pairs.h"
-#include "compute_pairs.h"
 #include "config.h"
 #include "dense_cubical_grids.h"
-#include "ph_2d.h"
+#include "persistence.h"
 #include "representatives.h"
 
 #include <nanobind/nanobind.h>
@@ -66,11 +64,7 @@ inline nb::object computePH(
     config.representatives = representatives;
     config.num_threads = n_threads;
 
-    vector<WritePairs> writepairs; // (dim birth death x y z)
-    writepairs.reserve(1000);
-
     std::unique_ptr<DenseCubicalGrids> dcg;
-    vector<Cube> ctr;
 
     const size_t nd = img.ndim();
     if (nd < 1 || nd > 4) {
@@ -93,11 +87,9 @@ inline nb::object computePH(
     const uint32_t sw = (nd > 3) ? static_cast<uint32_t>(img.shape(3)) : 1u;
     dcg = std::make_unique<DenseCubicalGrids>(config, ndim, sx, sy, sz, sw);
     config.maxdim = std::min<uint8_t>(config.maxdim, dcg->dim - 1);
-    if (top_dim && dcg->dim > 1) {
+    config.embedded = embedded;
+    if (top_dim) {
         config.method = ALEXANDER;
-        config.embedded = !embedded;
-    } else {
-        config.embedded = embedded;
     }
 
     // The grid build and the PH computation touch nothing but the raw input
@@ -105,73 +97,15 @@ inline nb::object computePH(
     // caller's frame keeps `img` alive, so `img.data()` stays valid.  Without
     // this, threaded batch processing over many images serialises completely.
     // It must be re-acquired before any Python object is created below.
-    {
-    nb::gil_scoped_release no_gil;
-
-    dcg->gridFromArray(img.data(), embedded, fortran_order);
-    dcg->finalisePadding();
-
-    // compute PH
-    if (config.method == ALEXANDER) {
-        auto jp = std::make_unique<JointPairs>(dcg.get(), writepairs, config);
-        if (dcg->dim == 1) {
-            jp->enum_edges({0}, ctr);
-            jp->joint_pairs_main(ctr, 0); // dim0
-        } else if (dcg->dim == 2) {
-            jp->enum_edges({0, 1, 3, 4}, ctr);
-            jp->joint_pairs_main(ctr, 1); // dim1
-        } else if (dcg->dim == 3) {
-            jp->enum_edges({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}, ctr);
-            jp->joint_pairs_main(ctr, 2); // dim2
-        }
-    } else {
-        // 2-D fast path: avoids the generic LINKFIND + ComputePairs machinery
-        // entirely (dual union-find Alexander-duality algorithm).
-        bool fastpath_handled = false;
-        if (dcg->dim <= 2 && dcg->az == 1 && dcg->aw == 1) {
-            fastpath_handled = compute_PH_2d(dcg.get(), writepairs, config);
-        }
-        if (!fastpath_handled) {
-            auto jp = std::make_unique<JointPairs>(dcg.get(), writepairs, config);
-            std::vector<uint32_t> betti;
-            if (dcg->dim == 1) {
-                jp->enum_edges({0}, ctr);
-            } else if (dcg->dim == 2) {
-                jp->enum_edges({0, 1}, ctr);
-            } else if (dcg->dim == 3) {
-                jp->enum_edges({0, 1, 2}, ctr);
-            } else if (dcg->dim == 4) {
-                jp->enum_edges({0, 1, 2, 3}, ctr);
-            }
-            jp->joint_pairs_main(ctr, 0); // dim0
-            betti.push_back(writepairs.size());
-            if (config.maxdim > 0) {
-                ComputePairs cp(dcg.get(), writepairs, config);
-                cp.compute_pairs_main(ctr); // dim1
-                betti.push_back(writepairs.size() - betti[0]);
-                if (config.maxdim > 1) {
-                    cp.assemble_columns_to_reduce(ctr, 2);
-                    cp.compute_pairs_main(ctr); // dim2
-                    betti.push_back(writepairs.size() - betti[0] - betti[1]);
-                    if (config.maxdim > 2) {
-                        cp.assemble_columns_to_reduce(ctr, 3);
-                        cp.compute_pairs_main(ctr); // dim3
-                        betti.push_back(writepairs.size() - betti[0] - betti[1] - betti[2]);
-                    }
-                }
-            }
-        }
-    }
-    } // GIL re-acquired here
-
-    // result
-    // determine shift between dcg and the voxel coordinates
-    auto pad_x = (dcg->ax - dcg->img_x) / 2;
-    auto pad_y = (dcg->ay - dcg->img_y) / 2;
-    auto pad_z = (dcg->az - dcg->img_z) / 2;
-    auto pad_w = (dcg->aw - dcg->img_w) / 2;
+    const Persistence persistence = [&] {
+        nb::gil_scoped_release no_gil;
+        return compute_persistence(*dcg, img.data(), fortran_order, config);
+    }(); // GIL re-acquired here
+    const vector<WritePairs> &writepairs = persistence.pairs;
+    const InputCoordinates &input_voxel = persistence.input_voxel;
     const int64_t p = static_cast<int64_t>(writepairs.size());
-    const int num_column = (dcg->dim > 3) ? 11 : 9;
+    const int num_axes = (dcg->dim > 3) ? 4 : 3;
+    const int num_column = 3 + 2 * num_axes;
 
     // Allocate an owned buffer; nanobind takes ownership via the capsule and
     // frees it once the Python array has no remaining references.
@@ -181,20 +115,12 @@ inline nb::object computePH(
         data_ptr[offset + 0] = writepairs[i].dim;
         data_ptr[offset + 1] = writepairs[i].birth;
         data_ptr[offset + 2] = writepairs[i].death;
-        data_ptr[offset + 3] = writepairs[i].birth_x - pad_x;
-        data_ptr[offset + 4] = writepairs[i].birth_y - pad_y;
-        data_ptr[offset + 5] = writepairs[i].birth_z - pad_z;
-
-        if (dcg->dim > 3) {
-            data_ptr[offset + 6] = writepairs[i].birth_w - pad_w;
-            data_ptr[offset + 7] = writepairs[i].death_x - pad_x;
-            data_ptr[offset + 8] = writepairs[i].death_y - pad_y;
-            data_ptr[offset + 9] = writepairs[i].death_z - pad_z;
-            data_ptr[offset + 10] = writepairs[i].death_w - pad_w;
-        } else {
-            data_ptr[offset + 6] = writepairs[i].death_x - pad_x;
-            data_ptr[offset + 7] = writepairs[i].death_y - pad_y;
-            data_ptr[offset + 8] = writepairs[i].death_z - pad_z;
+        const WritePairs &wp = writepairs[i];
+        const auto b = input_voxel(wp.birth_x, wp.birth_y, wp.birth_z, wp.birth_w);
+        const auto d = input_voxel(wp.death_x, wp.death_y, wp.death_z, wp.death_w);
+        for (int a = 0; a < num_axes; ++a) {
+            data_ptr[offset + 3 + a] = static_cast<double>(b[a]);
+            data_ptr[offset + 3 + num_axes + a] = static_cast<double>(d[a]);
         }
     }
 

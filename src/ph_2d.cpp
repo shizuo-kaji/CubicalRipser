@@ -28,6 +28,7 @@
 #include "cube.h"
 #include "dense_cubical_grids.h"
 #include "parallel.h"
+#include "union_find.h"
 #include "write_pairs.h"
 
 namespace {
@@ -43,18 +44,6 @@ struct PlanarDenseView {
         return data[static_cast<size_t>(x) + static_cast<size_t>(width) * y];
     }
 };
-
-// Path-compression find for a flat parent array.
-inline uint32_t uf_find(std::vector<uint32_t>& parent, uint32_t x) {
-    uint32_t r = x;
-    while (parent[r] != r) r = parent[r];
-    while (parent[x] != r) {
-        uint32_t nxt = parent[x];
-        parent[x] = r;
-        x = nxt;
-    }
-    return r;
-}
 
 // Compact 24-byte edge record. v1/v2 are vertex endpoints (for H_0);
 // s1/s2 are adjacent square ids (or INVALID_ID for outside; for H_1).
@@ -420,7 +409,6 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
             const double e1 = pix_at(ex + 1, ey);
             t = std::max(e0, e1);
         }
-        if (t >= threshold) return;
         edges.push_back({t, vx_lin(ex, ey), vx_lin(ex + 1, ey), s_a, s_b});
         ecoord.push_back(pack_edge_coord(0u, ex, ey));
     };
@@ -447,7 +435,6 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
             const double e1 = pix_at(ex, ey + 1);
             t = std::max(e0, e1);
         }
-        if (t >= threshold) return;
         edges.push_back({t, vx_lin(ex, ey), vx_lin(ex, ey + 1), s_l, s_r});
         ecoord.push_back(pack_edge_coord(1u, ex, ey));
     };
@@ -594,6 +581,7 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
 
         for (size_t i = 0; i < edges.size(); ++i) {
             const EdgeRec& e = edges[i];
+            if (e.t >= threshold) break; // the rest never enter
             uint32_t r1 = uf_find(v_parent, e.v1);
             uint32_t r2 = uf_find(v_parent, e.v2);
             if (r1 == r2) continue;
@@ -618,22 +606,19 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
             v_parent[younger] = older;
         }
 
-        double min_b = std::numeric_limits<double>::infinity();
-        uint32_t min_v = 0;
+        // The components left at the end never die; the threshold or values
+        // at DBL_MAX can leave several.
         for (size_t i = 0; i < nvert; ++i) {
-            if (v_parent[i] == static_cast<uint32_t>(i) && v_root_birth[i] < min_b) {
-                min_b = v_root_birth[i];
-                min_v = v_root_v[i];
+            if (v_parent[i] != static_cast<uint32_t>(i) || !(v_root_birth[i] < threshold)) {
+                continue;
             }
-        }
-        if (min_b < threshold) {
-            const uint32_t vx = min_v % VH;
-            const uint32_t vy = min_v / VH;
+            const uint32_t vx = v_root_v[i] % VH;
+            const uint32_t vy = v_root_v[i] / VH;
             uint32_t bx, by;
-            vertex_parent_pixel(vx, vy, min_b, bx, by);
-            pairs.emplace_back(0, min_b, threshold,
+            vertex_parent_pixel(vx, vy, v_root_birth[i], bx, by);
+            pairs.emplace_back(0, v_root_birth[i], threshold,
                                bx, by, 0u, 0u,
-                               0u, 0u, 0u, 0u, print);
+                               NO_VOXEL, NO_VOXEL, NO_VOXEL, NO_VOXEL, print);
         }
         return pairs;
     };
@@ -681,10 +666,18 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
             if (bp != dp) {
                 uint32_t cx, cy;
                 creator_pixel(static_cast<uint32_t>(i), cx, cy);
-                pairs.emplace_back(1, bp, dp,
-                                   cx, cy, 0u, 0u,
-                                   s_max_x[younger], s_max_y[younger], 0u, 0u,
-                                   print);
+                if (dp < threshold) {
+                    pairs.emplace_back(1, bp, dp,
+                                       cx, cy, 0u, 0u,
+                                       s_max_x[younger], s_max_y[younger], 0u, 0u,
+                                       print);
+                } else {
+                    // The hole is never filled below the threshold.
+                    pairs.emplace_back(1, bp, dp,
+                                       cx, cy, 0u, 0u,
+                                       NO_VOXEL, NO_VOXEL, NO_VOXEL, NO_VOXEL,
+                                       print);
+                }
             }
             s_parent[younger] = older;
         }

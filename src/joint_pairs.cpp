@@ -20,6 +20,7 @@ with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "cube.h"
 #include "dense_cubical_grids.h"
 #include "coboundary_enumerator.h"
+#include "cubical_cells.h"
 #include "union_find.h"
 #include "radix_sort.h"
 #include "write_pairs.h"
@@ -66,11 +67,12 @@ void JointPairs::enum_edges(const vector<uint8_t>& types, vector<Cube>& ctr) {
 }
 
 // Compute H_0 by union-find
-void JointPairs::joint_pairs_main(vector<Cube>& ctr, int current_dim) {
+void JointPairs::joint_pairs_main(vector<Cube>& ctr) {
     UnionFind dset(dcg);
     uint64_t u, v = 0;
     double min_birth = config->threshold;
     uint64_t min_idx = 0;
+    uint64_t merges = 0;
 
     auto decode = [&](uint64_t idx, uint32_t& x, uint32_t& y, uint32_t& z, uint32_t& w) {
         uint64_t t = idx;
@@ -94,20 +96,15 @@ void JointPairs::joint_pairs_main(vector<Cube>& ctr, int current_dim) {
             // 4D indexing
             uind = ex + dcg->ax * ey + dcg->axy * ez + dcg->axyz * ew;
 
-            // 4D neighbor offsets for edge types
-            static const int8_t dx4d[4] = {1, 0, 0, 0};  // x, y, z, w edges
-            static const int8_t dy4d[4] = {0, 1, 0, 0};
-            static const int8_t dz4d[4] = {0, 0, 1, 0};
-            static const int8_t dw4d[4] = {0, 0, 0, 1};
-
             const int m = e->m();
             if (m < 0 || m >= 4) throw std::logic_error("joint_pairs: invalid 4D edge type");
+            const int8_t *off = cubical_cells::edge_offset(static_cast<uint8_t>(m));
 
             // neighbor coordinates with strict per-axis bounds check
-            const int64_t nx = static_cast<int64_t>(ex) + dx4d[m];
-            const int64_t ny = static_cast<int64_t>(ey) + dy4d[m];
-            const int64_t nz = static_cast<int64_t>(ez) + dz4d[m];
-            const int64_t nw = static_cast<int64_t>(ew) + dw4d[m];
+            const int64_t nx = static_cast<int64_t>(ex) + off[0];
+            const int64_t ny = static_cast<int64_t>(ey) + off[1];
+            const int64_t nz = static_cast<int64_t>(ez) + off[2];
+            const int64_t nw = static_cast<int64_t>(ew) + off[3];
 
             vind = static_cast<uint64_t>(nx)
                  + static_cast<uint64_t>(dcg->ax) * static_cast<uint64_t>(ny)
@@ -117,17 +114,13 @@ void JointPairs::joint_pairs_main(vector<Cube>& ctr, int current_dim) {
             // up to 3D indexing (handles 1D/2D/3D uniformly with az,aw possibly 1)
             uind = ex + dcg->ax * ey + dcg->axy * ez;
 
-            // 13 neighbor patterns used in V/T constructions (3D); for 1D/2D
-            // only the relevant prefixes are referenced by m
-            static const int8_t dx[13]={1,0,0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1};
-            static const int8_t dy[13]={0,1,0, 1,-1,-1, 1,-1, 0, 1,-1, 0, 1};
-            static const int8_t dz[13]={0,0,1, 0, 0, 1, 1, 1, 1, 1,-1,-1,-1};
             const int m = e->m();
-            if (m < 0 || m >= 13) throw std::logic_error("joint_pairs: invalid edge type");
+            if (m < 0 || m >= 3) throw std::logic_error("joint_pairs: invalid edge type");
+            const int8_t *off = cubical_cells::edge_offset(static_cast<uint8_t>(m));
 
-            const int64_t nx = static_cast<int64_t>(ex) + dx[m];
-            const int64_t ny = static_cast<int64_t>(ey) + dy[m];
-            const int64_t nz = static_cast<int64_t>(ez) + dz[m];
+            const int64_t nx = static_cast<int64_t>(ex) + off[0];
+            const int64_t ny = static_cast<int64_t>(ey) + off[1];
+            const int64_t nz = static_cast<int64_t>(ez) + off[2];
 
             vind = static_cast<uint64_t>(nx)
                  + static_cast<uint64_t>(dcg->ax) * static_cast<uint64_t>(ny)
@@ -145,16 +138,16 @@ void JointPairs::joint_pairs_main(vector<Cube>& ctr, int current_dim) {
             // Determine which component is younger and will be merged
             if (dset.birthtime[u] >= dset.birthtime[v]) {
                 birth = dset.birthtime[u];
-                birth_ind = current_dim == 0 ? u : (dset.birthtime[uind] > dset.birthtime[vind] ? uind : vind);
-                death_ind = current_dim == 0 ? (dset.birthtime[uind] > dset.birthtime[vind] ? uind : vind) : u;
+                birth_ind = u;
+                death_ind = dset.birthtime[uind] > dset.birthtime[vind] ? uind : vind;
                 if (dset.birthtime[v] < min_birth) {
                     min_birth = dset.birthtime[v];
                     min_idx = v;
                 }
             } else {
                 birth = dset.birthtime[v];
-                birth_ind = current_dim == 0 ? v : (dset.birthtime[uind] > dset.birthtime[vind] ? uind : vind);
-                death_ind = current_dim == 0 ? (dset.birthtime[uind] > dset.birthtime[vind] ? uind : vind) : v;
+                birth_ind = v;
+                death_ind = dset.birthtime[uind] > dset.birthtime[vind] ? uind : vind;
                 if (dset.birthtime[u] < min_birth) {
                     min_birth = dset.birthtime[u];
                     min_idx = u;
@@ -163,6 +156,7 @@ void JointPairs::joint_pairs_main(vector<Cube>& ctr, int current_dim) {
 
             double death = e->birth;
             dset.link(u, v);  // Union the sets
+            ++merges;
             //cout << "Pair found: [" << birth << ", " << death << ") from indices " << birth_ind << " to " << death_ind << endl;
 
             // Record the birth-death pair if they are not equal
@@ -172,12 +166,14 @@ void JointPairs::joint_pairs_main(vector<Cube>& ctr, int current_dim) {
                 decode(death_ind, dx, dy, dz, dw);
 
                 if (config->tconstruction) {
-                    wp->emplace_back(current_dim,
-                        Cube(birth, bx, by, bz, bw, 0),
-                        Cube(death, dx, dy, dz, dw, 0),
-                        dcg, config->print);
+                    // Both ends are vertices; locate the voxels defining
+                    // their values.
+                    const auto b = dcg->ParentVoxel(0, Cube(birth, bx, by, bz, bw, 0));
+                    const auto d = dcg->ParentVoxel(0, Cube(death, dx, dy, dz, dw, 0));
+                    wp->emplace_back(0, birth, death,
+                        b[0], b[1], b[2], b[3], d[0], d[1], d[2], d[3], config->print);
                 } else {
-                    wp->emplace_back(current_dim, birth, death,
+                    wp->emplace_back(0, birth, death,
                         bx, by, bz, bw, dx, dy, dz, dw, config->print);
                 }
             }
@@ -185,33 +181,33 @@ void JointPairs::joint_pairs_main(vector<Cube>& ctr, int current_dim) {
         }
     }
 
-    // Handle the base point component for H_0
-    if (current_dim == 0) {
-        uint32_t bx, by, bz, bw, dx, dy, dz, dw;
-        if (ctr.empty()) {
-            // No edge was below the threshold, so no merge ran and min_birth is
-            // still the sentinel.  The essential class is then born at the
-            // smallest vertex value (e.g. a single-voxel input).
-            for (size_t i = 0; i < dset.birthtime.size(); ++i) {
-                if (dset.birthtime[i] < min_birth) {
-                    min_birth = dset.birthtime[i];
-                    min_idx = i;
-                }
+    // The components left at the end never die.  When every vertex below the
+    // threshold is in one component, min_idx is its root; otherwise (the
+    // threshold or values at DBL_MAX separate them) every root is reported.
+    auto essential = [&](uint64_t root) {
+        uint32_t bx, by, bz, bw;
+        decode(root, bx, by, bz, bw);
+        const double birth = dset.birthtime[root];
+        if (config->tconstruction) {
+            const auto b = dcg->ParentVoxel(0, Cube(birth, bx, by, bz, bw, 0));
+            bx = b[0]; by = b[1]; bz = b[2]; bw = b[3];
+        }
+        wp->emplace_back(0, birth, dcg->threshold, bx, by, bz, bw,
+                         NO_VOXEL, NO_VOXEL, NO_VOXEL, NO_VOXEL, config->print);
+    };
+    if (merges > 0 && dset.present == merges + 1) {
+        essential(min_idx);
+    } else {
+        for (uint64_t i = 0; i < dset.birthtime.size(); ++i) {
+            if (dset.birthtime[i] < dcg->threshold && dset.find(i) == i) {
+                essential(i);
             }
         }
-        decode(min_idx, bx, by, bz, bw);
-        if(config->tconstruction){
-            if (bx > 0) bx--;
-            if (by > 0) by--;
-            if (bz > 0) bz--;
-            if (bw > 0) bw--;
-        }
-        wp->emplace_back(current_dim, min_birth, dcg->threshold, bx, by, bz, bw, 0, 0, 0, 0, config->print);
     }
 
     // Remove unnecessary edges and optimize storage
-    if (config->maxdim == 0 || current_dim > 0) {
-        return;  // Skip further processing if we're not handling the highest dimension
+    if (config->maxdim == 0) {
+        return;  // No higher dimension needs the remaining edges
     } else {
         auto new_end = std::remove_if(ctr.begin(), ctr.end(), [](const Cube& e) { return e.index == NONE; });
         ctr.erase(new_end, ctr.end());

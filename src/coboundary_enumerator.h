@@ -24,8 +24,11 @@ private:
   uint8_t table_count;
   DenseCubicalGrids *dcg;
   const int8_t (*table_offsets)[5];
+  const double *anchor_ptr; // padded value at the cube's anchor
+  const int64_t *delta;     // step from anchor_ptr to each coface's anchor
+  int64_t deltas[6][8];     // per cube type, computed once per enumerator
 
-  bool hasNextCofaceTable();
+  template <int N, bool T> bool scan();
 
 public:
   Cube cube;

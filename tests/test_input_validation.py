@@ -51,3 +51,40 @@ def test_single_cell_birth_is_the_cell_value(shape):
     assert ph.shape[0] == 1
     assert ph[0, 1] == 3.0
     assert not np.isfinite(ph[0, 2])
+
+
+# top_dim computes the top dimension alone.  It used to crash the process (T),
+# return an empty table (4D) and, for the V-construction, return pairs that
+# differ from the ordinary computation.
+@pytest.mark.parametrize("filtration", ["V", "T"])
+@pytest.mark.parametrize("embedded", [False, True])
+@pytest.mark.parametrize("ties", [False, True])
+@pytest.mark.parametrize(
+    "shape", [(9, 10), (2, 6), (5, 6, 7), (4, 3, 5, 4), (7, 1), (6, 1, 7)]
+)
+def test_top_dim_matches_ordinary_computation(filtration, embedded, ties, shape):
+    rng = np.random.default_rng(2)
+    arr = rng.integers(0, 3, shape).astype(np.float64) if ties else rng.random(shape)
+    d = arr.ndim
+    top = cripser.compute_ph(arr, filtration=filtration, embedded=embedded, top_dim=True)
+    full = cripser.compute_ph(arr, filtration=filtration, embedded=embedded, maxdim=d - 1)
+    full = full[full[:, 0] == d - 1]
+    assert np.all(top[:, 0] == d - 1)
+    assert sorted(map(tuple, top[:, 1:3])) == sorted(map(tuple, full[:, 1:3]))
+
+    # Creator and destroyer values; a creator outside the input is -1.
+    k = 4 if d == 4 else 3
+    sign = -1.0 if embedded else 1.0
+    creator = top[:, 3 : 3 + d].astype(np.int64)
+    destroyer = top[:, 3 + k : 3 + k + d].astype(np.int64)
+    inside = np.all(creator >= 0, axis=1)
+    assert np.all(creator[~inside] == -1)
+    np.testing.assert_array_equal(sign * arr[tuple(creator[inside].T)], top[inside, 1])
+    np.testing.assert_array_equal(sign * arr[tuple(destroyer.T)], top[:, 2])
+
+
+def test_top_dim_of_1d_input_is_the_ordinary_computation():
+    arr = np.random.default_rng(1).random(50)
+    np.testing.assert_array_equal(
+        cripser.compute_ph(arr, top_dim=True), cripser.compute_ph(arr)
+    )

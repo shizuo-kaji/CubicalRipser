@@ -44,6 +44,8 @@ public:
 
   void reserve(size_t n) { this->c.reserve(n); }
   void clear() { this->c.clear(); }
+  // The underlying storage, for draining the whole heap at once.
+  vector<Cube> &container() { return this->c; }
 };
 
 class DensePivotTable {

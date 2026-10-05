@@ -39,8 +39,12 @@ add_library(mylib STATIC
     src/compute_pairs.cpp
     src/coboundary_enumerator.cpp
     src/joint_pairs.cpp
+    src/persistence.cpp
     src/ph_2d.cpp
     src/representatives.cpp
+    src/zigzag.cpp
+    src/zigzag_reduction.cpp
+    src/zigzag_runs.cpp
 )
 
 # V-construction library
@@ -71,6 +75,7 @@ endif()
 # Python ≥3.12 cover all newer CPython versions (Limited API / abi3).
 nanobind_add_module(_cripser STABLE_ABI src/cubicalripser_pybind.cpp)
 target_link_libraries(_cripser PRIVATE mylib vmylib)
+target_compile_definitions(_cripser PRIVATE CRIPSER_ZIGZAG_BINDING)
 
 # Build the T-construction python module from the same binding source,
 # overriding module name and docs via compile definitions.
@@ -90,10 +95,10 @@ if(DEFINED CRIPSER_VERSION)
 endif()
 
 # Command-line executables
-add_executable(cubicalripser src/cubicalripser.cpp)
+add_executable(cubicalripser src/cubicalripser.cpp src/image_io.cpp)
 target_link_libraries(cubicalripser PRIVATE mylib vmylib)
 
-add_executable(tcubicalripser src/cubicalripser.cpp)
+add_executable(tcubicalripser src/cubicalripser.cpp src/image_io.cpp)
 target_link_libraries(tcubicalripser PRIVATE mylib tmylib)
 
 # Optional: Group libraries and executables in folders in IDEs
