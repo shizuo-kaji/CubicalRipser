@@ -16,6 +16,7 @@ with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "cube.h"
 #include <cstddef>
 #include <limits>
+#include <queue>
 #include <unordered_map>
 #include <vector>
 
