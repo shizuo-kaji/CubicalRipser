@@ -4,13 +4,24 @@
 
 ## Basic usage
 
-[Build the executables](installation.md#build-the-command-line-programs), then
-run these commands from the repository root:
+[Build the executables](installation.md#build-the-command-line-programs) and
+create example inputs with [`cripser.datasets`](python-api.md#synthetic-arrays):
+
+```python
+import numpy as np
+from cripser import datasets
+
+np.save("sphere.npy", datasets.sphere((32, 32, 32)))        # one long H₂ bar
+np.save("sphere4d.npy", datasets.sphere((12, 12, 12, 12)))  # one long H₃ bar
+np.save("field.npy", datasets.gaussian_random_field((128, 128), seed=0))
+```
+
+Then run these commands from the repository root:
 
 ```bash
-./build/cubicalripser --maxdim 2 --output out.csv sample/3dimsample.txt
-./build/tcubicalripser --maxdim 2 --output out_t.csv sample/3dimsample.txt
-./build/cubicalripser --maxdim 3 --output ph4d.npy sample/4d_hole.npy
+./build/cubicalripser --maxdim 2 --output out.csv sphere.npy
+./build/tcubicalripser --maxdim 2 --output out_t.csv sphere.npy
+./build/cubicalripser --maxdim 3 --output ph4d.npy sphere4d.npy
 ```
 
 The binary selects the construction: there is no `--filtration` option in the
@@ -58,8 +69,8 @@ one is given. See [output semantics](concepts.md) before filtering or plotting
 the result.
 
 ```bash
-./build/cubicalripser --print --location none --output pairs.csv sample/2d_hole.npy
-./build/cubicalripser --output none sample/3d_hole.npy
+./build/cubicalripser --print --location none --output pairs.csv field.npy
+./build/cubicalripser --output none sphere.npy
 ```
 
 ## Python helper script
@@ -70,11 +81,11 @@ It requires the [demo dependencies](installation.md#optional-dependencies).
 
 ```bash
 python demo/cr.py -h
-python demo/cr.py sample/2d_hole.npy -o ph.csv
-python demo/cr.py sample/3d_hole.npy --maxdim 2 --filtration T -o ph.npy
+python demo/cr.py field.npy -o ph.csv
+python demo/cr.py sphere.npy --maxdim 2 --filtration T -o ph.npy
 python demo/cr.py dicom/ --sort -it dcm -o ph.csv
 python demo/cr.py slices/ -it png -o ph.csv
-python demo/cr.py sample/3d_hole.npy --negative -o ph.csv
+python demo/cr.py sphere.npy --negative -o ph.csv
 ```
 
 Selected options are `--maxdim`, `--filtration V|T`, `--embedded`, `--top_dim`,

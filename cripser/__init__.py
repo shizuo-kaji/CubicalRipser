@@ -20,6 +20,7 @@ from .image_loader import (
 from .transform import SUPPORTED_TRANSFORMS, binarize, apply_transform, preprocess_image
 from .vectorization import create_PH_histogram_volume, persistence_image
 from .zigzag import compute_zigzag
+from . import datasets
 try:
     from .tcripser import computePH as computePH_T
 except ImportError:

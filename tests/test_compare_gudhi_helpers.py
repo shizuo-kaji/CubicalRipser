@@ -3,6 +3,7 @@ from pathlib import Path
 import sys
 
 import numpy as np
+import pytest
 
 
 def _load_compare_gudhi_module():
@@ -41,3 +42,32 @@ def test_collect_sample_dataset_paths_expands_directory(tmp_path):
         ("alpha", "sample/alpha.npy"),
         ("sample/nested/beta", "sample/nested/beta.npy"),
     ]
+
+
+def test_collect_sample_dataset_paths_creates_fetchable_volume(tmp_path, monkeypatch):
+    compare_gudhi = _load_compare_gudhi_module()
+    from cripser import datasets
+
+    volume = np.arange(4 * 6 * 8, dtype=np.float64).reshape(4, 6, 8)
+    fetched = []
+    monkeypatch.setattr(datasets, "fetch", lambda name: fetched.append(name) or volume)
+    repo_root = tmp_path / "repo"
+    sample_dir = repo_root / "sample"
+
+    rows = compare_gudhi._collect_sample_dataset_paths(
+        ["bonsai128", "sample/bonsai256.npy", "fuel"], sample_dir, repo_root
+    )
+
+    assert [name for name, _ in rows] == ["bonsai128", "bonsai256", "fuel"]
+    assert fetched == ["bonsai", "bonsai", "fuel"]
+    assert np.array_equal(np.load(sample_dir / "bonsai128.npy"), volume[::2, ::2, ::2])
+    assert np.array_equal(np.load(sample_dir / "bonsai256.npy"), volume)
+    assert np.array_equal(np.load(sample_dir / "fuel.npy"), volume)
+
+
+def test_collect_sample_dataset_paths_missing_unknown(tmp_path):
+    compare_gudhi = _load_compare_gudhi_module()
+    repo_root = tmp_path / "repo"
+    sample_dir = repo_root / "sample"
+    with pytest.raises(FileNotFoundError):
+        compare_gudhi._collect_sample_dataset_paths(["unknown"], sample_dir, repo_root)

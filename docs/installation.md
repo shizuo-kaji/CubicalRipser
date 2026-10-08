@@ -96,7 +96,6 @@ A legacy alternative is `make all` from `src/`; CMake is the canonical build.
 | `import cripser` fails after source edits | Rebuild the extension with the editable-install command above. |
 | CMake cannot locate nanobind | Install nanobind into the interpreter selected by CMake. |
 | A helper reports a missing module | Install the corresponding optional dependency from the table. |
-| A repository example cannot find `sample/...` | Clone the repository and run from its root, or supply your own array. |
 
 Continue with the [Python quickstart](python-api.md#first-computation) or
 [CLI examples](cli.md#basic-usage).

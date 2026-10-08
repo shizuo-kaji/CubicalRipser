@@ -126,6 +126,72 @@ Results are independent of the worker count. Not all phases run in parallel;
 measure your own data before choosing a worker count. Concurrent computations
 also multiply the memory needed for grids and reduction state.
 
+## Synthetic arrays
+
+`cripser.datasets` generates arrays for examples, tests, and benchmarks. Each
+function returns a C-contiguous `float64` array. Random generators take
+`seed`, an integer or a `numpy.random.Generator`.
+
+| Function | Array |
+| --- | --- |
+| `uniform_noise(shape, levels=None, seed=None)` | Independent uniform values in [0, 1). With `levels=k`, integers 0, …, k−1 with many ties. |
+| `gaussian_random_field(shape, sigma=2.0, seed=None)` | White noise convolved with a Gaussian kernel (periodic), standardized; features are about `sigma` grid units in size. |
+| `sphere(shape, radius=None, center=None)` | Distance to a circle (2D), 2-sphere (3D), or 3-sphere (4D). The diagram has one long bar in dimension `ndim - 1`. |
+| `torus(shape, major_radius=None, minor_radius=None, center=None)` | Distance to a torus surface in 3D, with the axis of revolution along the last axis. |
+| `distance_to_points(shape, points=10, seed=None)` | Distance to the nearest of a set of points, random or given. The sublevel sets are unions of balls. |
+
+The shape generators return distances, so `arr <= t` is the shape thickened
+by `t`. Thresholding at about one grid unit gives a binary shape with known
+Betti numbers:
+
+```python
+import numpy as np
+import cripser
+from cripser import datasets
+
+shell = np.where(datasets.torus((32, 32, 16)) <= 0.85, 0.0, 1.0)
+ph = cripser.compute_ph(shell, maxdim=2)
+print([int(np.sum((ph[:, 0] == k) & (ph[:, 1] == 0))) for k in range(3)])  # [1, 2, 1]
+```
+
+## Downloaded volumes
+
+`cripser.datasets.fetch(name)` loads a real 3D or 4D volume as a C-contiguous
+`float64` array, downloading it on first use:
+
+| Name | Shape | Content | Source |
+| --- | --- | --- | --- |
+| `bonsai` | 256×256×256 | CT of a bonsai tree | volvis.org, S. Roettger (University of Stuttgart) |
+| `foot` | 256×256×256 | Rotational X-ray of a human foot | volvis.org, Philips Research |
+| `skull` | 256×256×256 | Rotational X-ray of a skull phantom | volvis.org, Siemens Medical Solutions |
+| `aneurism` | 256×256×256 | Rotational angiography of head arteries | volvis.org, Philips Research |
+| `engine` | 128×256×256 | CT of an engine block | volvis.org, General Electric |
+| `mri_ventricles` | 124×256×256 | MRI of a head, cerebrospinal fluid cavities | volvis.org, D. Bartz (University of Tübingen) |
+| `fuel` | 64×64×64 | Simulated fuel injection | volvis.org, SFB 382 (DFG) |
+| `hydrogen_atom` | 128×128×128 | Simulated electron probability density | volvis.org, SFB 382 (DFG) |
+| `tacc_turbulence` | 256×256×256 | Enstrophy of isotropic turbulence (continuous values) | G. D. Abram, G. P. Johnson (TACC), D. A. Donzis |
+| `fmri_haxby` | 40×64×64×121 | BOLD fMRI time series | Haxby et al. 2001, OpenNeuro ds000105 |
+
+The 3D volumes come from the
+[Open SciVis Datasets](https://klacansky.com/open-scivis-datasets/) collection
+and are indexed `[z, y, x]`. `fmri_haxby` is indexed `[x, y, z, t]`, as in
+nibabel. `datasets.VOLUMES[name]` holds the shape, description, and full
+credit; acknowledge the source when publishing results.
+
+```python
+import cripser
+from cripser import datasets
+
+bonsai = datasets.fetch("bonsai")
+ph = cripser.compute_ph(bonsai[::2, ::2, ::2], maxdim=2)  # 128³, as in the benchmarks
+bold = datasets.fetch("fmri_haxby")
+ph4 = cripser.compute_ph(bold[..., :10], maxdim=3)        # first 10 time points
+```
+
+Files are saved in `~/.cache/cripser` (`$XDG_CACHE_HOME/cripser` when set);
+set `CRIPSER_DATA_DIR` or pass `data_home=` to use another directory. Each
+download is checked against a SHA-512 digest stored in the package.
+
 ## Related helpers
 
 [Zigzag persistence](zigzag.md) covers `compute_zigzag` for sequences of

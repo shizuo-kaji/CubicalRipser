@@ -4,6 +4,8 @@
 
 - **Unreleased**:
   - New `compute_zigzag` for [zigzag persistence](zigzag.md) of sequences of binary masks (V/T constructions, intersection or union connections).
+  - New `cripser.datasets` [generators of synthetic arrays](python-api.md#synthetic-arrays): uniform noise, Gaussian random fields, and distances to a sphere, a torus, or a set of points. The small files under `sample/` were removed; the examples generate their inputs.
+  - New `cripser.datasets.fetch` [downloads real volumes](python-api.md#downloaded-volumes) on first use: nine 3D CT, MRI, and simulation volumes (including the bonsai used in the benchmarks) and a 4D fMRI time series. `demo/compare_gudhi.py` creates a missing `sample/bonsai128.npy` or `sample/bonsai256.npy` from it.
   - Faster 4D computations (H₁ about 15–25%) and about 5–10% faster 3D computations.
   - Fix: with tied values, creator/destroyer coordinates could point to a voxel outside the creating or destroying cell. They now always lie on that cell; persistence pairs and values are unchanged.
   - Locations outside the input array are now `-1` in every coordinate column, in Python and in CLI CSV/NPY output. This changes the destroyer of an essential class (previously `0`, or `-1` / `4294967295` with `--embedded`) and creators in the embedded boundary padding (previously `-1`, `4294967295` or one past the last index, depending on the output path). Persistence pairs and values are unchanged.

@@ -2,6 +2,7 @@ import numpy as np
 
 import cripser
 import tcripser
+from cripser import datasets
 
 def create_3d_sphere(n=5):
     """
@@ -10,16 +11,7 @@ def create_3d_sphere(n=5):
       value 0.0 on the spherical shell,
       value 1.0 elsewhere.
     """
-    coords = np.arange(n, dtype=float)
-    X, Y, Z = np.meshgrid(coords, coords, coords, indexing='ij')
-    c = (n - 1) / 2.0
-    dist = np.sqrt((X - c)**2 + (Y - c)**2 + (Z - c)**2)
-
-    r = c  # sphere roughly centered, maximal within grid
-    thickness = 0.85
-    shell = (np.abs(dist - r) <= thickness).astype(np.uint8)
-
-    return np.where(shell == 1, 0.0, 1.0).astype(float)
+    return np.where(datasets.sphere((n,) * 3) <= 0.85, 0.0, 1.0)
 
 def test_cripser_module_on_3d_hole():
     arr = create_3d_sphere(n=5)

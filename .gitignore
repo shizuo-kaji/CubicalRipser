@@ -10,3 +10,4 @@ __pycache__/
 *.pyd
 *.so
 demo/logs/
+sample/

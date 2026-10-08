@@ -10,7 +10,7 @@
 | `cripser/` | Python wrappers, I/O, plots, vectorization, and PyTorch integration |
 | `tests/` | Correctness, memory, layout, threading, and helper tests |
 | `demo/` | Tutorial notebook, conversion scripts, and local benchmark tools |
-| `sample/` | Example scalar arrays and text inputs |
+| `sample/` | Benchmark volumes such as `bonsai128.npy`, created on demand (not tracked) |
 | `docs/` | This manual |
 
 Read [AGENTS.md](../AGENTS.md) before modifying the core. In particular, preserve
@@ -46,8 +46,10 @@ Measure performance-sensitive changes before and after on the same nontrivial
 input and configuration. Use Release binaries, repeat measurements, and record
 both runtime and peak memory. Preserve barcode correctness as well as speed.
 
-With `sample/bonsai128.npy` available, the standard CLI comparison with
-`demo/compare_gudhi.py` is:
+The standard CLI comparison with `demo/compare_gudhi.py` is below. A missing
+`sample/bonsai128.npy` is created from
+[`cripser.datasets.fetch("bonsai")`](python-api.md#downloaded-volumes) at
+stride 2 (`bonsai256` at full resolution; other volume names likewise):
 
 ```bash
 python demo/compare_gudhi.py \
@@ -66,9 +68,9 @@ Use `--methods cripser gudhi cli` to include the Python and GUDHI paths.
 temporary CSV output in CLI timings instead of suppressing file creation.
 
 Run logs are written to `demo/logs/`, which is not tracked; they record the
-host name and command line. The large bonsai samples, reference logs, and
-local `demo/COMPARE.md` / `improvements.md` may not be included in every
-checkout or source distribution. Check their availability before running these
+host name and command line. Reference logs and local `demo/COMPARE.md` /
+`improvements.md` may not be included in every checkout or source
+distribution. Check their availability before running these
 commands; use the script's `--help` for its options. Local improvement notes
 include abandoned experiments, so verify claims against current code.
 

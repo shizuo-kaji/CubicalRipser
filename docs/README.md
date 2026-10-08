@@ -11,16 +11,17 @@ package, command-line programs, and tools shipped in this repository.
 3. [Interpret birth, death, and coordinates](concepts.md).
 4. [Plot or turn the result into features](analysis.md).
 
-The Python examples use small synthetic arrays where possible. Commands using
-`sample/`, `demo/`, or `build/` assume the repository root as the working directory;
-these directories are not provided by a normal wheel installation.
+The examples use synthetic arrays, built inline or with
+[`cripser.datasets`](python-api.md#synthetic-arrays). Commands using `demo/` or
+`build/` assume the repository root as the working directory; these
+directories are not provided by a normal wheel installation.
 
 ## Chapters
 
 | Chapter | What you will find |
 | --- | --- |
 | [Installation](installation.md) | Python requirements, optional dependencies, source and CLI builds |
-| [Python API](python-api.md) | Computation parameters, output tables, array layouts, threading |
+| [Python API](python-api.md) | Computation parameters, output tables, array layouts, threading, example data |
 | [Command-line usage](cli.md) | V/T binaries, options, output files, `demo/cr.py` |
 | [Input and output](io.md) | NumPy, CSV, Perseus, DIPHA, images, slice stacks, preprocessing |
 | [Constructions and output semantics](concepts.md) | V/T connectivity, sublevel filtrations, duality, creator/destroyer locations |

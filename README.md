@@ -39,11 +39,13 @@ Use `filtration="T"` for T-construction. Results also include creator/destroyer
 coordinates; essential classes have `death=np.inf`. See the
 [Python API](docs/python-api.md) and [output semantics](docs/concepts.md).
 
-For the CLI, [build the binaries](docs/installation.md#build-the-command-line-programs), then run from the repository root:
+For the CLI, [build the binaries](docs/installation.md#build-the-command-line-programs), then run from the repository root.
+The input below is a hollow sphere from [`cripser.datasets`](docs/python-api.md#synthetic-arrays):
 
 ```bash
-./build/cubicalripser --maxdim 2 --output out.csv sample/3dimsample.txt
-./build/tcubicalripser --maxdim 2 --output out_t.csv sample/3dimsample.txt
+python -c "import numpy as np, cripser; np.save('sphere.npy', cripser.datasets.sphere((32, 32, 32)))"
+./build/cubicalripser --maxdim 2 --output out.csv sphere.npy
+./build/tcubicalripser --maxdim 2 --output out_t.csv sphere.npy
 ```
 
 ## Documentation

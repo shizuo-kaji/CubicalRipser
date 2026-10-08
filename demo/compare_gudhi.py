@@ -1219,7 +1219,9 @@ def parse_args() -> argparse.Namespace:
         metavar="DATASET",
         help=(
             "Additional .npy datasets to benchmark as file-backed inputs. "
-            "Accepts stems under sample/, file paths, or directories containing .npy files."
+            "Accepts stems under sample/, file paths, or directories containing .npy files. "
+            "A missing sample/bonsai128, sample/bonsai256 (bonsai at stride 2 / 1) or "
+            "sample/<name> for a name in cripser.datasets.VOLUMES is downloaded and created."
         ),
     )
     parser.add_argument(
@@ -1362,6 +1364,31 @@ def _dataset_id_from_path(path: Path, repo_root: Path) -> str:
     return rel.with_suffix("").as_posix()
 
 
+# Benchmark volumes created from cripser.datasets when missing: stem -> (volume, stride).
+# Any other name in cripser.datasets.VOLUMES is created at full resolution.
+_FETCHED_SAMPLES = {
+    "bonsai256": ("bonsai", 1),
+    "bonsai128": ("bonsai", 2),
+}
+
+
+def _materialize_sample(path: Path, sample_dir: Path) -> bool:
+    """Create a missing ``sample/<stem>.npy`` from cripser.datasets, if it is known."""
+    from cripser import datasets
+
+    if path.suffix != ".npy" or path.parent != sample_dir.resolve():
+        return False
+    name, step = _FETCHED_SAMPLES.get(path.stem, (path.stem, 1))
+    if name not in datasets.VOLUMES:
+        return False
+    arr = datasets.fetch(name)
+    arr = arr[(slice(None, None, step),) * arr.ndim]
+    sample_dir.mkdir(parents=True, exist_ok=True)
+    np.save(path, arr)
+    print(f"Created {path} from cripser.datasets.fetch({name!r})", file=sys.stderr)
+    return True
+
+
 def _collect_sample_dataset_paths(
     datasets: list[str],
     sample_dir: Path,
@@ -1386,7 +1413,7 @@ def _collect_sample_dataset_paths(
 
     for dataset in datasets:
         dataset_path = _resolve_dataset_path(dataset, sample_dir)
-        if not dataset_path.exists():
+        if not dataset_path.exists() and not _materialize_sample(dataset_path, sample_dir):
             raise FileNotFoundError(f"Sample dataset not found: {_display_path(dataset_path, repo_root)}")
         if dataset_path.is_dir():
             npy_paths = sorted(p for p in dataset_path.rglob("*.npy") if p.is_file())
