@@ -39,6 +39,17 @@ def test_plot_diagrams_accepts_cripser_nine_column_output():
     plt.close(fig)
 
 
+def test_plot_diagrams_accepts_cripser_four_dimensional_output():
+    hollow_sphere = np.where(cripser.datasets.sphere((5,) * 4) <= 0.85, 0.0, 1.0)
+    ph = cripser.compute_ph(hollow_sphere, maxdim=3)
+    assert ph.shape[1] == 11
+
+    fig, ax = plt.subplots()
+    cripser.plot_diagrams(ph, labels=["H0", "H1", "H2", "H3"], ax=ax, show=False)
+    assert [text.get_text() for text in ax.get_legend().get_texts()] == ["H0", "H3"]
+    plt.close(fig)
+
+
 def test_plot_cycle_overlays_a_planar_cycle_on_an_image():
     image = np.zeros((5, 5), dtype=np.float64)
     cycle = np.array(

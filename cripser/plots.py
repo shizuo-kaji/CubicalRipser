@@ -25,8 +25,8 @@ def _normalize_diagrams(
     diagrams: Iterable[np.ndarray | Sequence[Sequence[float]]] | np.ndarray,
 ) -> list[np.ndarray]:
     if isinstance(diagrams, np.ndarray):
-        # Allow passing raw CubicalRipser output of shape (n, 9).
-        if diagrams.ndim == 2 and diagrams.shape[1] == 9:
+        # Allow passing raw CubicalRipser output of shape (n, 9) or (n, 11).
+        if diagrams.ndim == 2 and diagrams.shape[1] in (9, 11):
             return [np.asarray(d, dtype=np.float64) for d in to_gudhi_diagrams(diagrams)]
         return [_as_diagram_array(diagrams)]
     out: list[np.ndarray] = []
@@ -51,7 +51,7 @@ def plot_diagrams(
 
     Parameters
     - diagrams: list of arrays (n_i, 2), a single (n, 2) array, or
-      CubicalRipser output of shape (n, 9).
+      CubicalRipser output of shape (n, 9) (or (n, 11) for 4D).
     - labels: optional labels for the legend.
     - ax: optional matplotlib axis.
     - title: optional axis title.

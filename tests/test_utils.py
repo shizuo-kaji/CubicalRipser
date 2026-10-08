@@ -6,6 +6,7 @@ from cripser import (
     to_gudhi_diagrams,
     to_gudhi_persistence,
     group_by_dim,
+    datasets,
 )
 
 
@@ -68,3 +69,12 @@ def test_dual_embedding_matches_reference_3d():
     ref = _dual_embedding_reference(arr)
     assert out.shape == (5, 4, 3)
     np.testing.assert_allclose(out, ref, rtol=0.0, atol=0.0)
+
+
+def test_group_by_dim_accepts_4d_output():
+    hollow_sphere = np.where(datasets.sphere((5,) * 4) <= 0.85, 0.0, 1.0)
+    ph = compute_ph(hollow_sphere, maxdim=3)
+    assert ph.shape[1] == 11
+    groups = group_by_dim(ph)
+    assert [len(g) for g in groups] == [1, 0, 0, 1]
+    assert all(g.shape[1] == 11 for g in groups)

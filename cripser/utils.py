@@ -200,14 +200,14 @@ def group_by_dim(ph: np.ndarray) -> List[np.ndarray]:
     """Group full rows by homology dimension.
 
     Parameters
-    - ph: array of shape (n, 9) from `computePH`.
+    - ph: array of shape (n, 9) (or (n, 11) for 4D) from `computePH`.
 
     Returns
-    - List of subarrays (each with the same 9 columns), ordered by increasing dimension.
+    - List of subarrays (each with the same columns), ordered by increasing dimension.
     """
     a = np.asarray(ph)
-    if a.ndim != 2 or a.shape[1] != 9:
-        raise ValueError("Expected (n, 9) array from computePH")
+    if a.ndim != 2 or a.shape[1] not in (9, 11):
+        raise ValueError("Expected (n, 9) or (n, 11) array from computePH")
     dims = a[:, 0].astype(int, copy=False)
     maxdim = int(dims.max()) if a.size else 0
     groups: List[np.ndarray] = []
