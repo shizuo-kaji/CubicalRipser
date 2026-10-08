@@ -153,11 +153,51 @@ before/after numbers to the user rather than a qualitative impression.
 - Never commit build artifacts (`build/`, `*.so`, `*.egg-info`, sample data you generated for
   local testing) — check `git status` before staging.
 
+## Releasing a version
+
+Pushing a tag publishes a release: `.github/workflows/build.yml` builds the sdist and the
+wheels (cibuildwheel on Linux, macOS, Windows) and uploads them to PyPI (`cripser`) through
+the `pypi` environment, which has no approval step. Pull requests and manual runs
+(`workflow_dispatch`) build without uploading. PyPI never accepts a version number twice.
+
+**Do not bump the version, tag, or push without the user's explicit go-ahead for that
+release in the current conversation.** Prepare steps 1–4 locally, show the user the release
+commit and the planned tag, and wait.
+
+1. Start from `main`, up to date with `origin/main` (`git fetch`, `git status`), with
+   nothing unintended staged.
+2. Verify: run the full `pytest` with `CRIPSER_CLI_DIR` pointing at a fresh Release build so
+   the CLI tests run, and the timing check above if `src/` or hot paths in `cripser/` changed
+   since the last tag (`git diff --stat <last tag> -- src cripser`).
+3. Bump `version` in `pyproject.toml` — the only place it is set (`setup.py` passes it to
+   CMake, which compiles it into `cripser.__version__`). Use the next patch version
+   (`0.0.N` → `0.0.N+1`) unless the user says otherwise; check the latest with
+   `pip index versions cripser`. In `docs/release-notes.md`, rename the `**Unreleased**`
+   entry to `**vX.Y.Z**`.
+4. Commit as `release: vX.Y.Z - <summary>`, with the correctness and performance statement
+   required above.
+5. After the go-ahead, push `main` (`git push origin main`), then check the wheel build
+   before tagging: `gh workflow run build.yml --ref main` and `gh run watch`. This catches
+   platform-specific failures (v0.0.36 failed on MSVC after it was tagged) without publishing.
+6. Tag the release commit and push the tag; tags use the `v` prefix:
+   `git tag -a vX.Y.Z -m "Release vX.Y.Z"` and `git push origin vX.Y.Z`.
+7. Watch the tag run (`gh run list --workflow build.yml --limit 1`, then `gh run watch <id>`)
+   and confirm the upload: `pip index versions cripser` lists `X.Y.Z`, and in a fresh
+   environment `pip install cripser==X.Y.Z` gives `cripser.__version__ == "X.Y.Z"`.
+8. If the tag run fails before the upload job, fix the problem on `main`; then, with the
+   user's go-ahead, move the tag (`git push origin :refs/tags/vX.Y.Z`, `git tag -d vX.Y.Z`,
+   re-tag the fixed commit, push). If any file of `X.Y.Z` reached PyPI, do not reuse the
+   number: release the fix as the next version.
+
 ## Data & platform notes
 
-- Sample arrays under `sample/` can be large (`bonsai256.npy`, etc.) — don't casually add new
-  large binary fixtures; prefer small synthetic arrays with known ground-truth topology for
-  new tests (see how `test_3d_hole.py` constructs its input).
+- `sample/` holds only the large benchmark volumes (`bonsai128.npy`, `bonsai256.npy`; not
+  tracked). `demo/compare_gudhi.py` creates them when missing from
+  `cripser.datasets.fetch("bonsai")`, which downloads and caches real 3D/4D volumes
+  (SHA-512 checked). Don't add binary fixtures; generate test and example inputs on the
+  fly with `cripser.datasets` (noise, Gaussian random fields, and sphere / torus /
+  point-set distance fields with known topology — see `tests/test_datasets.py`). Tests
+  must not need the network; the download test runs only with `CRIPSER_TEST_DOWNLOADS=1`.
 - Wheel builds target multiple Python versions and OSes (`pyproject.toml`
   `[tool.cibuildwheel]`) with an `abi3` extension (nanobind, Python ≥ 3.9) — avoid
   version-specific or platform-specific C API usage in the pybind layer.
