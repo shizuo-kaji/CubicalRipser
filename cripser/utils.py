@@ -68,6 +68,7 @@ def compute_ph(
     location: str = "yes",
     representatives: bool = False,
     n_threads: int = 1,
+    threshold: float | None = None,
     inf_cutoff: bool = True,
 ) -> np.ndarray | tuple[np.ndarray, list[list[list[int]]]]:
     """Compute persistent homology using `cripser` or `tcripser`.
@@ -83,6 +84,10 @@ def compute_ph(
       the ``CRIPSER_NUM_THREADS`` environment variable). The result is
       identical for every value. Leave it at ``1`` when you already parallelise
       over images yourself, since the GIL is released during the computation.
+    - threshold: compute only the subcomplex of cells whose filtration value is
+      below ``threshold``, as the CLI ``--threshold`` does. Classes born below
+      it are reported; those still alive at it have death ``threshold`` and
+      no destroyer. ``None`` (default) or ``inf`` means no threshold.
     - inf_cutoff: value to use as cutoff for detecting DBL_MAX (default is _INF_CUTOFF)
 
     Returns
@@ -109,6 +114,8 @@ def compute_ph(
         representatives=representatives,
         n_threads=n_threads,
     )
+    if threshold is not None:
+        kwargs["threshold"] = float(threshold)
     if filtration.upper() == "T":
         out = computePH_T(arr, **kwargs)
     else:

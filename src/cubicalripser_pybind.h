@@ -20,6 +20,7 @@ with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <string>
 #include <cstdint>
 #include <stdexcept>
+#include <cmath>
 #include <memory>
 
 #if defined(_MSC_VER)
@@ -51,7 +52,8 @@ inline nb::object computePH(
     bool embedded = false,
     const std::string &location = "yes",
     bool representatives = false,
-    int n_threads = 1)
+    int n_threads = 1,
+    double threshold = DBL_MAX)
 {
     // we ignore "location" argument
     if (representatives && top_dim) {
@@ -63,6 +65,12 @@ inline nb::object computePH(
     config.format = NUMPY;
     config.representatives = representatives;
     config.num_threads = n_threads;
+    if (std::isnan(threshold)) {
+        throw std::invalid_argument("threshold must not be NaN");
+    }
+    // Cells at the threshold never enter, so inf means no threshold, as
+    // DBL_MAX does: values at DBL_MAX or inf stay out either way.
+    config.threshold = std::min(threshold, DBL_MAX);
 
     std::unique_ptr<DenseCubicalGrids> dcg;
 

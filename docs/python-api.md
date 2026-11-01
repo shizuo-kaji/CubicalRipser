@@ -31,7 +31,8 @@ For a 4D array, use `maxdim=3` to include H₃.
 ```text
 cripser.compute_ph(
     arr, *, filtration="V", maxdim=3, top_dim=False, embedded=False,
-    location="yes", representatives=False, n_threads=1, inf_cutoff=True,
+    location="yes", representatives=False, n_threads=1, threshold=None,
+    inf_cutoff=True,
 )
 ```
 
@@ -45,6 +46,7 @@ cripser.compute_ph(
 | `location` | Compatibility argument. The current Python binding always returns coordinate columns, even with `"none"`. |
 | `representatives` | If true, return `(pairs, cycles)`; incompatible with `top_dim=True`. |
 | `n_threads` | 1 for sequential execution, 0 for automatic selection, or a positive worker count. |
+| `threshold` | Compute only the subcomplex of cells with filtration value below `threshold`, as the CLI [`--threshold`](cli.md#options) does. Classes still alive at `threshold` have death `threshold` and no destroyer. `None` (default) or `np.inf` means no threshold. |
 | `inf_cutoff` | Boolean switch: convert deaths ≥ `np.finfo(np.float64).max / 2` to `np.inf`. Set false to keep raw values. |
 
 ### Input shape and memory layout

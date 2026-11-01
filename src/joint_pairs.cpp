@@ -14,9 +14,11 @@ with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <iostream>
 #include <algorithm>
+#include <cfloat>
 #include <vector>
 #include <cstdint>
 #include <stdexcept>
+#include <type_traits>
 #include "cube.h"
 #include "dense_cubical_grids.h"
 #include "coboundary_enumerator.h"
@@ -46,21 +48,36 @@ void JointPairs::enum_edges(const vector<uint8_t>& types, vector<Cube>& ctr) {
     const size_t reserve_target = std::min(max_edges, static_cast<size_t>(8000000));
     ctr.reserve(reserve_target);
     const double threshold = config->threshold;
-    // Iterate over each type (order of loops matters for performance)
-    for (const auto& m : types) {
-        for (uint32_t w = 0; w < dcg->aw; ++w) {
-            for (uint32_t z = 0; z < dcg->az; ++z) {
-                for (uint32_t y = 0; y < dcg->ay; ++y) {
-                    for (uint32_t x = 0; x < dcg->ax; ++x) {
-                        double birth = dcg->getBirth(x, y, z, w, m, 1);
-                        // If birth value is below the threshold, add to the list
-                        if (birth < threshold) {
-                            ctr.emplace_back(birth, x, y, z, w, m);
+    // Under the V-construction the anchor is one of an edge's vertices, so an
+    // edge anchored at the threshold never enters: one value decides it.  The
+    // scan tests it only with a threshold under the V-construction; otherwise
+    // the loop is the plain one.
+    auto scan = [&](auto skip_by_anchor) {
+        // Iterate over each type (order of loops matters for performance)
+        for (const auto& m : types) {
+            for (uint32_t w = 0; w < dcg->aw; ++w) {
+                for (uint32_t z = 0; z < dcg->az; ++z) {
+                    for (uint32_t y = 0; y < dcg->ay; ++y) {
+                        for (uint32_t x = 0; x < dcg->ax; ++x) {
+                            if (decltype(skip_by_anchor)::value &&
+                                *dcg->cell_ptr(x, y, z, w) >= threshold) {
+                                continue;
+                            }
+                            double birth = dcg->getBirth(x, y, z, w, m, 1);
+                            // If birth value is below the threshold, add to the list
+                            if (birth < threshold) {
+                                ctr.emplace_back(birth, x, y, z, w, m);
+                            }
                         }
                     }
                 }
             }
         }
+    };
+    if (!dcg->tconstruction() && threshold < DBL_MAX) {
+        scan(std::true_type{});
+    } else {
+        scan(std::false_type{});
     }
     // Sort the cubes based on birth values
     cubicalripser::radix_sort_cubes(ctr);

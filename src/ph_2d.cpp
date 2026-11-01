@@ -16,11 +16,15 @@
 #include "ph_2d.h"
 
 #include <algorithm>
+#include <cfloat>
+#include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <limits>
 #include <numeric>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -367,6 +371,24 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
     edges.reserve(cap);
     std::vector<uint64_t> ecoord;
     ecoord.reserve(cap);
+    // Edges at the threshold never enter: H_0 stops before them and they give
+    // H_1 no pair, but the dual union-find over the squares joins along them
+    // first.  They stay out of the sort and are appended after it.  The sort is
+    // stable and would have put them last in this same order, so the sequence
+    // is unchanged and only the edges below the threshold are sorted.  Without
+    // a threshold the edges are not split: the test per edge measured about 1%
+    // slower on 2048^2 input.
+    std::vector<EdgeRec> edges_at_threshold;
+    std::vector<uint64_t> ecoord_at_threshold;
+    auto push_edge = [&](const EdgeRec& e, uint64_t coord, auto split) {
+        if (decltype(split)::value && e.t >= threshold) {
+            edges_at_threshold.push_back(e);
+            ecoord_at_threshold.push_back(coord);
+        } else {
+            edges.push_back(e);
+            ecoord.push_back(coord);
+        }
+    };
 
     auto pack_edge_coord = [](uint32_t etype, uint32_t ex, uint32_t ey) -> uint64_t {
         return (static_cast<uint64_t>(etype) << 62) |
@@ -380,7 +402,7 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
         ey = static_cast<uint32_t>(packed & 0x7fffffffu);
     };
 
-    auto add_xedge = [&](uint32_t ex, uint32_t ey) {
+    auto add_xedge = [&](uint32_t ex, uint32_t ey, auto split) {
         if (one_dim) {
             const double t = tcon ? pix_at(ex, 0) : std::max(pix_at(ex, 0), pix_at(ex + 1, 0));
             if (t >= threshold) return;
@@ -409,11 +431,11 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
             const double e1 = pix_at(ex + 1, ey);
             t = std::max(e0, e1);
         }
-        edges.push_back({t, vx_lin(ex, ey), vx_lin(ex + 1, ey), s_a, s_b});
-        ecoord.push_back(pack_edge_coord(0u, ex, ey));
+        push_edge({t, vx_lin(ex, ey), vx_lin(ex + 1, ey), s_a, s_b},
+                  pack_edge_coord(0u, ex, ey), split);
     };
 
-    auto add_yedge = [&](uint32_t ex, uint32_t ey) {
+    auto add_yedge = [&](uint32_t ex, uint32_t ey, auto split) {
         const bool has_left = (ex >= 1);
         const bool has_right = (ex < SH);
         if (!has_left && !has_right) return;
@@ -435,19 +457,26 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
             const double e1 = pix_at(ex, ey + 1);
             t = std::max(e0, e1);
         }
-        edges.push_back({t, vx_lin(ex, ey), vx_lin(ex, ey + 1), s_l, s_r});
-        ecoord.push_back(pack_edge_coord(1u, ex, ey));
+        push_edge({t, vx_lin(ex, ey), vx_lin(ex, ey + 1), s_l, s_r},
+                  pack_edge_coord(1u, ex, ey), split);
     };
 
-    for (uint32_t ey = 0; ey < EX_RANGE_Y; ++ey) {
-        for (uint32_t ex = 0; ex < EX_RANGE_X; ++ex) {
-            add_xedge(ex, ey);
+    auto add_edges = [&](auto split) {
+        for (uint32_t ey = 0; ey < EX_RANGE_Y; ++ey) {
+            for (uint32_t ex = 0; ex < EX_RANGE_X; ++ex) {
+                add_xedge(ex, ey, split);
+            }
         }
-    }
-    for (uint32_t ey = 0; ey < EY_RANGE_Y; ++ey) {
-        for (uint32_t ex = 0; ex < EY_RANGE_X; ++ex) {
-            add_yedge(ex, ey);
+        for (uint32_t ey = 0; ey < EY_RANGE_Y; ++ey) {
+            for (uint32_t ex = 0; ex < EY_RANGE_X; ++ex) {
+                add_yedge(ex, ey, split);
+            }
         }
+    };
+    if (threshold < DBL_MAX) {
+        add_edges(std::true_type{});
+    } else {
+        add_edges(std::false_type{});
     }
 
     auto creator_pixel = [&](uint32_t i, uint32_t& cx, uint32_t& cy) {
@@ -521,8 +550,14 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
     }
     sort_keys_by_t(keys, workers);
     {
-        std::vector<EdgeRec> sorted_edges(edges.size());
-        std::vector<uint64_t> sorted_coords(edges.size());
+        // With room for the edges at the threshold, added below.
+        const size_t total = edges.size() + edges_at_threshold.size();
+        std::vector<EdgeRec> sorted_edges;
+        sorted_edges.reserve(total);
+        sorted_edges.resize(edges.size());
+        std::vector<uint64_t> sorted_coords;
+        sorted_coords.reserve(total);
+        sorted_coords.resize(edges.size());
         EdgeRec* edge_out = sorted_edges.data();
         uint64_t* coord_out = sorted_coords.data();
         const EdgeRec* edge_in = edges.data();
@@ -540,6 +575,16 @@ bool compute_PH_2d(DenseCubicalGrids* dcg,
         edges.swap(sorted_edges);
         ecoord.swap(sorted_coords);
     }
+    // Edges with a positive NaN birth (NaN input) sort after those at the
+    // threshold; keep them last.
+    size_t at = edges.size();
+    while (at > 0 && std::isnan(edges[at - 1].t) && !std::signbit(edges[at - 1].t)) --at;
+    edges.insert(edges.begin() + static_cast<std::ptrdiff_t>(at),
+                 edges_at_threshold.begin(), edges_at_threshold.end());
+    ecoord.insert(ecoord.begin() + static_cast<std::ptrdiff_t>(at),
+                  ecoord_at_threshold.begin(), ecoord_at_threshold.end());
+    std::vector<EdgeRec>().swap(edges_at_threshold);
+    std::vector<uint64_t>().swap(ecoord_at_threshold);
 
     auto vertex_parent_pixel = [&](uint32_t vx, uint32_t vy, double b,
                                    uint32_t& bx, uint32_t& by) {

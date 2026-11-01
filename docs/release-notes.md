@@ -2,6 +2,9 @@
 
 [Manual](README.md) · [Installation](installation.md)
 
+- **Unreleased**:
+  - Faster 3D and 4D computations: about 15–25% less time for 3D input and about 40–55% less for 4D input, with slightly less memory.
+  - New `threshold` argument of `compute_ph` and `computePH`, the counterpart of the CLI `--threshold`: only cells with filtration value below it are computed. Previously the Python API had no threshold.
 - **v0.0.37**:
   - New `compute_zigzag` for [zigzag persistence](zigzag.md) of sequences of binary masks (V/T constructions, intersection or union connections).
   - New `cripser.datasets` [generators of synthetic arrays](python-api.md#synthetic-arrays): uniform noise, Gaussian random fields, and distances to a sphere, a torus, or a set of points. The small files under `sample/` were removed; the examples generate their inputs.

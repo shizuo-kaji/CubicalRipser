@@ -10,6 +10,7 @@ authors = [
     { name = "Shizuo Kaji", email = "shizuo.kaji@gmail.com"}
     ]
 requires-python = ">=3.9"
+dependencies = ["numpy"]
 
 [build-system]
 # setuptools reads metadata from [project]; setup.py drives CMake directly.

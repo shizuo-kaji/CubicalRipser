@@ -47,7 +47,8 @@ NB_MODULE(CRIPSER_MODULE_NAME, m) {
     m.def("computePH", &computePH, "Compute Persistent Homology",
           nb::arg("arr"), nb::arg("maxdim") = 3, nb::arg("top_dim") = false,
           nb::arg("embedded") = false, nb::arg("location") = "yes",
-          nb::arg("representatives") = false, nb::arg("n_threads") = 1);
+          nb::arg("representatives") = false, nb::arg("n_threads") = 1,
+          nb::arg("threshold") = DBL_MAX);
 
 #ifdef CRIPSER_ZIGZAG_BINDING
     // Zigzag persistence chooses V/T at run time, so only one module needs it.
