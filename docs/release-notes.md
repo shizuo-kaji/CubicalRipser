@@ -2,7 +2,7 @@
 
 [Manual](README.md) · [Installation](installation.md)
 
-- **Unreleased**:
+- v0.0.38**:
   - Faster 3D and 4D computations: about 15–25% less time for 3D input and about 40–55% less for 4D input, with slightly less memory.
   - New `threshold` argument of `compute_ph` and `computePH`, the counterpart of the CLI `--threshold`: only cells with filtration value below it are computed. Previously the Python API had no threshold.
 - **v0.0.37**:
