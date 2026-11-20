@@ -23,9 +23,9 @@ class DenseCubicalGrids;
 
 class JointPairs {
 private:
+    DenseCubicalGrids* dcg;        // Pointer to the dense cubical grids object
     std::vector<WritePairs>* wp;  // Pointer to vector of WritePairs for storing results
     Config* config;               // Pointer to configuration settings
-    DenseCubicalGrids* dcg;        // Pointer to the dense cubical grids object
 
 public:
     // Constructor for initializing JointPairs
